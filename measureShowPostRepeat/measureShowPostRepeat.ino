@@ -9,9 +9,8 @@
 #define SCREENINTERVAL (10000)//ms
 #define POSTINTERVAL (60000)//ms
 #define POST //post data online
-#define MQTT //use MQTT
-//#define PRINTSERIAL
-//#define VERBOSE
+#define PRINTSERIAL //print measurements to serial output
+#define VERBOSE //print connection status and posting details
 
 //******************************************
 #include <ESP8266WiFi.h>
@@ -46,7 +45,7 @@ const char* password = WIFIPASSWORD;
 
 //******************************************
 //ThingSpeak MQTT
-#ifdef MQTT
+#ifdef POST
   char MQTTServer[] = "mqtt.thingspeak.com";
   long MQTTPort = 1883;//NOTE 1883 without SSL, 8883 with SSL
   char TSChannelWriteAPIKey[] = TSWRITEAPIKEY;//TS channel write API key
@@ -57,7 +56,7 @@ const char* password = WIFIPASSWORD;
   static const char alphanum[] ="0123456789"
                                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                 "abcdefghijklmnopqrstuvwxyz";
-#endif //MQTT
+#endif //POST
 
 //******************************************
 //time keeper
@@ -100,7 +99,7 @@ void setup(){
   display.println("mTRHV");
   display.setTextSize(1);
   display.println("");
-  display.println("v. 0.6");
+  display.println("v. 0.7");
   display.display();
   
   //initialize SHT31 (address 0x44)
@@ -492,12 +491,12 @@ void loop(){
 
   //post data online
   if(postTimeElapsed > POSTINTERVAL && toggleWiFi){
-    #ifdef MQTT
+    #ifdef POST
       //read temperature and RH before the ESP8266 heats up while connecting to the wifi
       postDataOnline(
         sht31.readTemperature(),
         sht31.readHumidity());
-    #endif //MQTT
+    #endif //POST
     //reset button flag and elapsed time clock
     postTimeElapsed=0;
   }
@@ -507,7 +506,7 @@ void loop(){
 }
 
 //******************************************
-#ifdef MQTT
+#ifdef POST
 void MQTTConnect(){
 
   //show status
@@ -543,52 +542,76 @@ void MQTTConnect(){
     //print to know why the connection failed
     //see http://pubsubclient.knolleary.net/api.html#state for the failure code explanation
     display.print("status: ");
-    //Serial.print("\tstatus: ");
+    #ifdef VERBOSE
+      Serial.print("\tstatus: ");
+    #endif
     
     switch (MQTTClient.state()){
       case -4:
         display.println("timeout");
-        //Serial.println("timeout");
+        #ifdef VERBOSE
+          Serial.println("timeout");
+        #endif
         break;
       case -3:
         display.println("lost");
-        //Serial.println("lost");
+        #ifdef VERBOSE
+          Serial.println("lost");
+        #endif
         break;
       case -2:
         display.println("failed");
-        //Serial.println("failed");
+        #ifdef VERBOSE
+          Serial.println("failed");
+        #endif
         break;
       case -1:
         display.println("disconnected");
-        //Serial.println("disconnected");
+        #ifdef VERBOSE
+          Serial.println("disconnected");
+        #endif
         break;
       case 0:
         display.println("connected");
-        //Serial.println("connected");
+        #ifdef VERBOSE
+          Serial.println("connected");
+        #endif
         break;
       case 1:
         display.println("bad protocol");
-        //Serial.println("bad protocol");
+        #ifdef VERBOSE
+          Serial.println("bad protocol");
+        #endif
         break;
       case 2:
         display.println("bad client ID");
-        //Serial.println("bad client ID");
+        #ifdef VERBOSE
+          Serial.println("bad client ID");
+        #endif
         break;
       case 3:
         display.println("unavailable");
-        //Serial.println("unavailable");
+        #ifdef VERBOSE
+          Serial.println("unavailable");
+        #endif
         break;
       case 4:
         display.println("bad credentials");
-        //Serial.println("bad credentials");
+        #ifdef VERBOSE
+          Serial.println("bad credentials");
+        #endif
         break;
       case 5:
         display.println("unauthorized");
-        //Serial.println("unauthorized");
+        #ifdef VERBOSE
+          Serial.println("unauthorized");
+        #endif
         break;
       default:
         display.println("unknown");
-        //Serial.println("unknown");
+        #ifdef VERBOSE
+          Serial.println("unknown");
+        #endif
         break;
     }
 
@@ -615,10 +638,10 @@ void MQTTConnect(){
     else delay(2000);
   }//END connecting loop
 }
-#endif //MQTT
+#endif //POST
 
 //******************************************
-#ifdef MQTT
+#ifdef POST
 void MQTTPublish(float t, float rh){
 
   //print
@@ -666,5 +689,5 @@ void MQTTPublish(float t, float rh){
   }
   delay(1000);
 }
-#endif //MQTT
+#endif //POST
 

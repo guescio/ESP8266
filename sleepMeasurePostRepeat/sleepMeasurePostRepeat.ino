@@ -5,21 +5,22 @@
   Don't forget to connect pin 16 with the reset pin.
   Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in the definitions section below.
   To enable/disable a sensor, uncomment/comment its name in the definitions section below.
+  NOTE: the maximum number of fields that can be uploaded seems to be six.
   Author: Guescio.
 */
 
 //******************************************
 //definitions
-#define SHT35A //0x44 address
+//#define SHT35A //0x44 address
 #define SHT35B //0x45 address
-#define SDP610
-#define SLEEPTIME (30)//s
+//#define SDP610
+#define SLEEPTIME (10)//s
 #define PRINTSERIAL //print measurements to serial output
-//#define POST //post measurements online
+#define POST //post measurements online
 #define VERBOSE //print connection status and posting details
 
 //******************************************
-#ifdef SHT35A || SHT35B
+#if defined(SHT35A) || defined(SHT35B)
 #include "Adafruit_SHT31.h"
 #endif
 #ifdef SDP610
@@ -90,17 +91,20 @@ void setup(){
   Wire.setClockStretchLimit(1e4);//µs
   #endif
 
-  //read temperature and RH before the ESP8266 heats up
+  //read values before the ESP8266 heats up
   float ta = std::numeric_limits<double>::quiet_NaN();
   float rha = std::numeric_limits<double>::quiet_NaN();
+  float dpa = std::numeric_limits<double>::quiet_NaN();
   float tb = std::numeric_limits<double>::quiet_NaN();
   float rhb = std::numeric_limits<double>::quiet_NaN();
+  float dpb = std::numeric_limits<double>::quiet_NaN();
   float dp = std::numeric_limits<double>::quiet_NaN();
+  float dt = std::numeric_limits<double>::quiet_NaN();
   #ifdef SHT35A
   ta = sht31a.readTemperature();
   rha = sht31a.readHumidity();
   #endif
-  #ifdef SHT35A
+  #ifdef SHT35B
   tb = sht31b.readTemperature();
   rhb = sht31b.readHumidity();
   #endif
@@ -108,15 +112,19 @@ void setup(){
   dp = SDP6x.GetPressureDiff();
   #endif
 
-  //print serial
-  #ifdef PRINTSERIAL
-  printSerial(ta, rha, tb, rhb, dp);
+  #if defined(SHT35A) && defined(SHT35B)
+  dt = ta-tb;
   #endif
 
+  //print serial
+  #ifdef PRINTSERIAL
+  printSerial(ta, rha, tb, rhb, dp, dt);
+  #endif
+  
   //post data online
   #ifdef POST
   MQTTClient.setServer(MQTTServer, MQTTPort);
-  postData(ta, rha, tb, rhb, dp);
+  postData(ta, rha, tb, rhb, dp, dt);
   #endif
 
   //deep sleep
@@ -139,7 +147,7 @@ float getDewPoint(float t, float rh){
 
 //******************************************
 //print measurements to serial output
-void printSerial(float ta, float rha, float tb, float rhb, float dp){
+void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt){
   /*
   Serial.println();
   Serial.println("sleep, measure, post, repeat");
@@ -151,6 +159,9 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp){
   #endif
   #ifdef SDP610
   Serial.print(" dP[Pa]");
+  #endif
+  #if defined(SHT35A) && defined(SHT35B)
+  Serial.print(" dt[C]");
   #endif
   Serial.println();
   */
@@ -175,13 +186,18 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp){
   Serial.print(" ");
   #endif
 
+  #if defined(SHT35A) && defined(SHT35B)
+  Serial.print(dt);//temperature difference
+  Serial.print(" ");
+  #endif
+
   Serial.println();
 }
 
 //******************************************
 //post data online using MQTT protocol
 #ifdef POST
-void postData(float ta, float rha, float tb, float rhb, float dp){
+void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
 
   //------------------------------------------
   //connect to the wifi
@@ -193,10 +209,11 @@ void postData(float ta, float rha, float tb, float rhb, float dp){
   for (int ii=0;ii<20;ii++){
 
     //status
+    #ifdef VERBOSE
     Serial.println();
     Serial.print("wifi connecting to ");
     Serial.println(ssid);
-
+    
     Serial.print("status: ");
     switch (WiFi.status()){
       case 0:
@@ -224,19 +241,22 @@ void postData(float ta, float rha, float tb, float rhb, float dp){
         Serial.println("unknown");
         break;
     }
-
+    #endif
+    
     if (WiFi.status() == WL_CONNECTED) break;
     delay(1000);
   }
 
   //------------------------------------------
   if (WiFi.status() == WL_CONNECTED){
-  
+
+    #ifdef VERBOSE
     Serial.print("wifi connected to ");
     Serial.println(ssid);
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
     Serial.println();
+    #endif
     
     //------------------------------------------
     //post data using MQTT protocol
@@ -246,17 +266,19 @@ void postData(float ta, float rha, float tb, float rhb, float dp){
       //call the loop continuously to establish connection to the server
       MQTTClient.loop();
       //publish data to ThingSpeak
-      MQTTPublish(ta, rha, tb, rhb, dp);
+      MQTTPublish(ta, rha, tb, rhb, dp, dt);
       //disconnect
       MQTTClient.disconnect();
     }
   }
   //------------------------------------------
   else {
+    #ifdef VERBOSE
     Serial.print("could not connect to ");
     Serial.println(ssid);
     Serial.println("abort");
     Serial.println();
+    #endif
   }
 
   //------------------------------------------
@@ -295,7 +317,7 @@ void MQTTConnect(){
     //print to know why the connection failed
     //see http://pubsubclient.knolleary.net/api.html#state for the failure code explanation
     #ifdef VERBOSE
-    Serial.print("\tstatus: ");
+    Serial.print("status: ");
     
     switch (MQTTClient.state()){
       case -4:
@@ -349,21 +371,30 @@ void MQTTConnect(){
 
 //******************************************
 #ifdef POST
-void MQTTPublish(float ta, float rha, float tb, float rhb, float dp){
+void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
 
   //print
   #ifdef VERBOSE
   Serial.println("posting data");
   #endif
- 
+
   //create data string to send to ThingSpeak
+  #if defined(SHT35A) and defined(SHT35B)
+  String data = String("field1="  + String(ta) +
+                       "&field2=" + String(rha) +
+                       //"&field3=" + String(getDewPoint(ta,rha)) +
+                       "&field4=" + String(dp)+
+                       "&field5=" + String(tb) +
+                       "&field6=" + String(rhb) +
+                       //"&field7=" + String(getDewPoint(tb,rhb)) +
+                       "&field8=" + String(dt));
+  #else
   String data = String("field1="  + String(ta) +
                        "&field2=" + String(rha) +
                        "&field3=" + String(getDewPoint(ta,rha)) +
-                       "&field4=" + String(tb) +
-                       "&field6=" + String(rhb) +
-                       "&field7=" + String(getDewPoint(tb,rhb)) +
-                       "&field8=" + String(dp));
+                       "&field4=" + String(dp));
+  #endif
+  
   int length = data.length();
   char msgBuffer[length];
   data.toCharArray(msgBuffer,length+1);
