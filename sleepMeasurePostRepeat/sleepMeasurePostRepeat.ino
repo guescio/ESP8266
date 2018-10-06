@@ -17,6 +17,8 @@
 #define SLEEPTIME (60)//s
 //#define PRINTSERIAL //print measurements to serial output
 #define POST //post measurements online
+//#define QUIET //test posting but do not post
+#define FALKOR //post to falkor instead of ThingSpeak
 //#define VERBOSE //print connection status and posting details
 
 //******************************************
@@ -57,18 +59,26 @@ const char* password = WIFIPASSWORD;
 #endif
 
 //******************************************
-//ThingSpeak MQTT
+//MQTT and wi-fi setup
 #ifdef POST
-char MQTTServer[] = "mqtt.thingspeak.com";
-long MQTTPort = 1883;//NOTE 1883 without SSL, 8883 with SSL
-char TSChannelWriteAPIKey[] = TSWRITEAPIKEY;//TS channel write API key
-long channelID = TSCHANNELID;
-WiFiClient WiFiclient;//initialize the wifi client library
-PubSubClient MQTTClient(WiFiclient);//initialize PuBSubClient library
-//NOTE need a random client ID for posting
-static const char alphanum[] ="0123456789"
-                              "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                              "abcdefghijklmnopqrstuvwxyz";
+  #ifdef FALKOR
+    char MQTTServer[] = "falkor.triumf.ca";
+    long MQTTPort = 1883;
+    char MQTTUsername[] = FALKORUSER;
+    char MQTTPassword[] = FALKORPASSWORD;
+  #else
+    //ThingSpeak
+    char MQTTServer[] = "mqtt.thingspeak.com";
+    long MQTTPort = 1883;//NOTE 1883 without SSL, 8883 with SSL
+    char MQTTUsername[] = TSWRITEAPIKEY;//TS channel write API key
+    long MQTTUsername = TSCHANNELID;
+  #endif
+  //NOTE need a random client ID for posting
+  static const char alphanum[] ="0123456789"
+                                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                "abcdefghijklmnopqrstuvwxyz";
+  WiFiClient WiFiclient;//initialize the wifi client library
+  PubSubClient MQTTClient(WiFiclient);//initialize PuBSubClient library
 #endif //POST
 
 //******************************************
@@ -318,7 +328,7 @@ void MQTTConnect(){
     clientID[10]='\0';
 
     //connect
-    MQTTClient.connect(clientID, TSUSERNAME, TSMQTTAPIKEY);
+    MQTTClient.connect(clientID, MQTTUsername, MQTTPassword);
     
     //connection status
     //print to know why the connection failed
@@ -385,26 +395,65 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   Serial.println("posting data");
   #endif
 
-  //create data string to send to ThingSpeak
-  #if defined(SHT35A) and defined(SHT35B)
-  String data = String("field1="  + String(ta) +
-                       "&field2=" + String(rha) +
-                       //"&field3=" + String(getDewPoint(ta,rha)) +
-                       "&field4=" + String(dp)+
-                       "&field5=" + String(tb) +
-                       "&field6=" + String(rhb) +
-                       //"&field7=" + String(getDewPoint(tb,rhb)) +
-                       "&field8=" + String(dt));
-  #elif defined(SHT35A)
-  String data = String("field1="  + String(ta) +
-                       "&field2=" + String(rha) +
-                       "&field3=" + String(getDewPoint(ta,rha)) +
-                       "&field4=" + String(dp));
-  #elif defined(SHT35B)
-  String data = String("field1="  + String(tb) +
-                       "&field2=" + String(rhb) +
-                       "&field3=" + String(getDewPoint(tb,rhb)) +
-                       "&field4=" + String(dp));
+  //create data string to send to MQTT broker
+  #ifdef FALKOR
+    //falkor
+    #if defined(SHT35A) and defined(SHT35B)
+      String data = String("{"+
+                         "[{" +
+                         "\"temperature\":" + String(ta) +
+                         ",\"relativehumidity\":" + String(rha) +
+                         //",\"dewpoint\":" + String(getDewPoint(ta,rha)) +
+                         "\"address\":\"A\""}]" +
+                         "}, {" +
+                         \"temperature\":" + String(tb) +
+                         ",\"relativehumidity\":" + String(rhb) +
+                         //",\"dewpoint\":" + String(getDewPoint(tb,rhb)) +
+                         "\"address\":\"B\""}]" +
+                         ",\"temperaturedifference\":" + String(dt));
+      #ifdef SDP610
+        data += String(",\"differentialpressure\":" + String(dp));
+      #endif
+      data+=String("}");
+    #elif defined(SHT35A)
+      String data = String("{\"temperature\":" + String(ta));
+      data += String(",\"relativehumidity\":" + String(rha));
+      //data += String(",\"dewpoint\":" + String(getDewPoint(ta,rha)));
+      #ifdef SDP610
+        data += String(",\"differentialpressure\":" + String(dp));
+      #endif
+      data+=String("}");
+    #elif defined(SHT35B)
+      String data = String("{\"temperature\":" + String(tb));
+      data += String(",\"relativehumidity\":" + String(rhb));
+      //data += String(",\"dewpoint\":" + String(getDewPoint(tb,rhb)));
+      #ifdef SDP610
+        data += String(",\"differentialpressure\":" + String(dp));
+      #endif
+      data+=String("}");
+    #endif
+  #else
+    //ThingSpeak
+    #if defined(SHT35A) and defined(SHT35B)
+    String data = String("field1="  + String(ta) +
+                         "&field2=" + String(rha) +
+                         //"&field3=" + String(getDewPoint(ta,rha)) +
+                         "&field4=" + String(dp)+
+                         "&field5=" + String(tb) +
+                         "&field6=" + String(rhb) +
+                         //"&field7=" + String(getDewPoint(tb,rhb)) +
+                         "&field8=" + String(dt));         
+    #elif defined(SHT35A)
+    String data = String("field1="  + String(ta) +
+                         "&field2=" + String(rha) +
+                         "&field3=" + String(getDewPoint(ta,rha)) +
+                         "&field4=" + String(dp));
+    #elif defined(SHT35B)
+    String data = String("field1="  + String(tb) +
+                         "&field2=" + String(rhb) +
+                         "&field3=" + String(getDewPoint(tb,rhb)) +
+                         "&field4=" + String(dp));
+    #endif
   #endif
   
   int length = data.length();
@@ -414,8 +463,14 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   Serial.println(msgBuffer);
   #endif
 
-  //create a topic string and publish data to ThingSpeak channel feed
-  String topicString ="channels/" + String( channelID ) + "/publish/"+String(TSChannelWriteAPIKey);
+  //create a topic string and publish data to channel feed
+  #ifdef FALKOR
+  //falkor
+  String topicString ="test";
+  #else
+  //ThingSpeak
+  String topicString ="channels/" + String(channelID) + "/publish/"+String(MQTTPassword);
+  #endif
   length=topicString.length();
   char topicBuffer[length];
   topicString.toCharArray(topicBuffer,length+1);
@@ -424,16 +479,18 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   #endif
   
   //publish
-  if (MQTTClient.publish(topicBuffer, msgBuffer)) {
-    #ifdef VERBOSE
-    Serial.println("success");
-    #endif
-  } else {
-    #ifdef VERBOSE
-    Serial.println("fail");
-    #endif
-  }
+  #ifndef QUIET
+    if (MQTTClient.publish(topicBuffer, msgBuffer)) {
+      #ifdef VERBOSE
+      Serial.println("success");
+      #endif
+    } else {
+      #ifdef VERBOSE
+      Serial.println("fail");
+      #endif
+    }
   Serial.println();
+  #endif
 }
 #endif //POST
 
