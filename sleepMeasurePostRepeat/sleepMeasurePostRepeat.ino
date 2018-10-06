@@ -11,13 +11,13 @@
 
 //******************************************
 //definitions
-//#define SHT35A //0x44 address
-#define SHT35B //0x45 address
+#define SHT35A //0x44 address
+//#define SHT35B //0x45 address
 //#define SDP610
-#define SLEEPTIME (10)//s
-#define PRINTSERIAL //print measurements to serial output
+#define SLEEPTIME (60)//s
+//#define PRINTSERIAL //print measurements to serial output
 #define POST //post measurements online
-#define VERBOSE //print connection status and posting details
+//#define VERBOSE //print connection status and posting details
 
 //******************************************
 #if defined(SHT35A) || defined(SHT35B)
@@ -172,12 +172,16 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt){
   Serial.print(" ");
   Serial.print(rha);//humidity
   Serial.print(" ");
+  Serial.print(getDewPoint(ta,rha));//dew point
+  Serial.print(" ");
   #endif
 
   #ifdef SHT35B
   Serial.print(tb);//temperature
   Serial.print(" ");
   Serial.print(rhb);//humidity
+  Serial.print(" ");
+  Serial.print(getDewPoint(tb,rhb));//dew point
   Serial.print(" ");
   #endif
 
@@ -310,6 +314,9 @@ void MQTTConnect(){
         clientID[i] = alphanum[random(51)];
     }
 
+    //https://community.thingspeak.com/forum/esp8266-wi-fi/problem-rc-4-using-library-pubsub/
+    clientID[10]='\0';
+
     //connect
     MQTTClient.connect(clientID, TSUSERNAME, TSMQTTAPIKEY);
     
@@ -388,10 +395,15 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
                        "&field6=" + String(rhb) +
                        //"&field7=" + String(getDewPoint(tb,rhb)) +
                        "&field8=" + String(dt));
-  #else
+  #elif defined(SHT35A)
   String data = String("field1="  + String(ta) +
                        "&field2=" + String(rha) +
                        "&field3=" + String(getDewPoint(ta,rha)) +
+                       "&field4=" + String(dp));
+  #elif defined(SHT35B)
+  String data = String("field1="  + String(tb) +
+                       "&field2=" + String(rhb) +
+                       "&field3=" + String(getDewPoint(tb,rhb)) +
                        "&field4=" + String(dp));
   #endif
   

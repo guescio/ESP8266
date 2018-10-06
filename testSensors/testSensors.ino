@@ -8,12 +8,12 @@
 //******************************************
 //definitions
 #define SHT35A //0x44
-#define SHT35B //0x45
-#define SDP610
-#define INTERVAL (10e3)//ms
+//#define SHT35B //0x45
+//#define SDP610
+#define INTERVAL (2e3)//ms
 
 //******************************************
-#ifdef SHT35A || SHT35B
+#if defined(SHT35A) || defined(SHT35B)
 #include "Adafruit_SHT31.h"
 #endif
 #ifdef SDP610
