@@ -27,6 +27,10 @@ void setup() {
   Serial.begin(115200);
   delay(100);
 
+  //print MAC address
+  Serial.print("MAC address: ");
+  Serial.println(WiFi.macAddress());
+
   //connect to wifi network
   Serial.print("connecting to ");
   Serial.println(ssid);
@@ -39,10 +43,9 @@ void setup() {
     Serial.print(".");
   }
 
+  //print info
   Serial.println("");
   Serial.println("wifi connected");
-  Serial.print("MAC address: ");
-  Serial.println(WiFi.macAddress());
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
   Serial.print("netmask: ");
