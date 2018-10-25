@@ -1,11 +1,10 @@
 /* 
   This sketch reads the ambient temperature, humidity and differential pressure, prints them to serial output, posts them online and then goes to sleep.
-  The values measured are posted on ThingSpeak through MQTT.
+  The values measured are posted through MQTT.
   Temperature and humidity can be read from two different sensors.
   Don't forget to connect pin 16 with the reset pin.
   Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in the definitions section below.
   To enable/disable a sensor, uncomment/comment its name in the definitions section below.
-  NOTE: the maximum number of fields that can be uploaded seems to be six.
   Author: Guescio.
 */
 
@@ -14,11 +13,11 @@
 #define SHT35A //0x44 address
 //#define SHT35B //0x45 address
 //#define SDP610
-#define SLEEPTIME (60)//s
+#define SLEEPTIME (30)//s
 //#define PRINTSERIAL //print measurements to serial output
 #define POST //post measurements online
 //#define QUIET //test posting but do not post
-#define FALKOR //post to falkor instead of ThingSpeak
+//#define THINGSPEAK //post to ThingSpeak instead of another MQTT SERVER
 //#define VERBOSE //print connection status and posting details
 
 //******************************************
@@ -52,7 +51,8 @@ Adafruit_SHT31 sht31b = Adafruit_SHT31();
 //SDP610 does not need initialization
 
 //******************************************
-//wifi
+//
+
 #ifdef POST
 const char* ssid     = WIFISSID;
 const char* password = WIFIPASSWORD;
@@ -61,17 +61,16 @@ const char* password = WIFIPASSWORD;
 //******************************************
 //MQTT and wi-fi setup
 #ifdef POST
-  #ifdef FALKOR
-    char MQTTServer[] = "falkor.triumf.ca";
-    long MQTTPort = 1883;
-    char MQTTUsername[] = FALKORUSER;
-    char MQTTPassword[] = FALKORPASSWORD;
-  #else
-    //ThingSpeak
+  #ifdef THINGSPEAK
     char MQTTServer[] = "mqtt.thingspeak.com";
     long MQTTPort = 1883;//NOTE 1883 without SSL, 8883 with SSL
     char MQTTUsername[] = TSWRITEAPIKEY;//TS channel write API key
     long MQTTUsername = TSCHANNELID;
+  #else
+    char MQTTServer[] = MQTTSERVER;
+    long MQTTPort = 1883;
+    char MQTTUsername[] = MSUSER;
+    char MQTTPassword[] = MSPASSWORD;
   #endif
   //NOTE need a random client ID for posting
   static const char alphanum[] ="0123456789"
@@ -269,6 +268,8 @@ void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
     Serial.println(ssid);
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
+    Serial.print("RSSI: ");
+    Serial.println(WiFi.RSSI());
     Serial.println();
     #endif
     
@@ -396,44 +397,7 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   #endif
 
   //create data string to send to MQTT broker
-  #ifdef FALKOR
-    //falkor
-    #if defined(SHT35A) and defined(SHT35B)
-      String data = String("{"+
-                         "[{" +
-                         "\"temperature\":" + String(ta) +
-                         ",\"relativehumidity\":" + String(rha) +
-                         //",\"dewpoint\":" + String(getDewPoint(ta,rha)) +
-                         "\"address\":\"A\""}]" +
-                         "}, {" +
-                         \"temperature\":" + String(tb) +
-                         ",\"relativehumidity\":" + String(rhb) +
-                         //",\"dewpoint\":" + String(getDewPoint(tb,rhb)) +
-                         "\"address\":\"B\""}]" +
-                         ",\"temperaturedifference\":" + String(dt));
-      #ifdef SDP610
-        data += String(",\"differentialpressure\":" + String(dp));
-      #endif
-      data+=String("}");
-    #elif defined(SHT35A)
-      String data = String("{\"temperature\":" + String(ta));
-      data += String(",\"relativehumidity\":" + String(rha));
-      //data += String(",\"dewpoint\":" + String(getDewPoint(ta,rha)));
-      #ifdef SDP610
-        data += String(",\"differentialpressure\":" + String(dp));
-      #endif
-      data+=String("}");
-    #elif defined(SHT35B)
-      String data = String("{\"temperature\":" + String(tb));
-      data += String(",\"relativehumidity\":" + String(rhb));
-      //data += String(",\"dewpoint\":" + String(getDewPoint(tb,rhb)));
-      #ifdef SDP610
-        data += String(",\"differentialpressure\":" + String(dp));
-      #endif
-      data+=String("}");
-    #endif
-  #else
-    //ThingSpeak
+  #ifdef THINGSPEAK
     #if defined(SHT35A) and defined(SHT35B)
     String data = String("field1="  + String(ta) +
                          "&field2=" + String(rha) +
@@ -454,27 +418,71 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
                          "&field3=" + String(getDewPoint(tb,rhb)) +
                          "&field4=" + String(dp));
     #endif
+  #else
+    #if defined(SHT35A) and defined(SHT35B)
+      String data = String("{"+
+                           "[{" +
+                           "\"temperature\":" + String(ta) +
+                           ",\"relativehumidity\":" + String(rha));
+      if ( ! isnan(getDewPoint(ta,rha)))
+        data +=     String(",\"dewpoint\":" + String(getDewPoint(ta,rha)));
+      else
+        data +=     String(",\"dewpoint\":\"NaN\"");
+      data +=       String("\"address\":\"A\"" +
+                           "}, {" +
+                           \"temperature\":" + String(tb) +
+                           ",\"relativehumidity\":" + String(rhb));
+      if ( ! isnan(getDewPoint(tb,rhb)))
+        data +=     String(",\"dewpoint\":" + String(getDewPoint(tb,rhb)));
+      else
+        data +=     String(",\"dewpoint\":\"NaN\"");
+      data +=       String("\"address\":\"B\"" +
+                           "}]" +
+                           ",\"temperaturedifference\":" + String(dt));
+      #ifdef SDP610
+        data +=     String(",\"differentialpressure\":" + String(dp));
+      #endif
+      data +=       String("}");
+    #elif defined(SHT35A)
+      String data = String("{\"temperature\":" + String(ta));
+      data += String(",\"relativehumidity\":" + String(rha));
+      if ( ! isnan(getDewPoint(ta,rha))) data += String(",\"dewpoint\":" + String(getDewPoint(ta,rha)));
+      else data += String(",\"dewpoint\":\"NaN\"");
+      #ifdef SDP610
+        data += String(",\"differentialpressure\":" + String(dp));
+      #endif
+      data+=String("}");
+    #elif defined(SHT35B)
+      String data = String("{\"temperature\":" + String(tb));
+      data += String(",\"relativehumidity\":" + String(rhb));
+      if ( ! isnan(getDewPoint(ta,rha))) data += String(",\"dewpoint\":" + String(getDewPoint(tb,rhb)));
+      else data += String(",\"dewpoint\":\"NaN\"");
+      #ifdef SDP610
+        data += String(",\"differentialpressure\":" + String(dp));
+      #endif
+      data+=String("}");
+    #endif
   #endif
   
   int length = data.length();
   char msgBuffer[length];
   data.toCharArray(msgBuffer,length+1);
   #ifdef VERBOSE
+  Serial.print("message: ");
   Serial.println(msgBuffer);
   #endif
 
   //create a topic string and publish data to channel feed
-  #ifdef FALKOR
-  //falkor
-  String topicString ="test";
+  #ifdef THINGSPEAK
+    String topicString = "channels/" + String(channelID) + "/publish/"+String(MQTTPassword);
   #else
-  //ThingSpeak
-  String topicString ="channels/" + String(channelID) + "/publish/"+String(MQTTPassword);
+    String topicString = MSTOPIC;
   #endif
   length=topicString.length();
   char topicBuffer[length];
   topicString.toCharArray(topicBuffer,length+1);
   #ifdef VERBOSE
+  Serial.print("topic: ");
   Serial.println(topicString);
   #endif
   
