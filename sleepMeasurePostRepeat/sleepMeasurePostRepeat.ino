@@ -14,11 +14,11 @@
 //#define SHT35B //0x45 address
 //#define SDP610
 #define SLEEPTIME (30)//s
-//#define PRINTSERIAL //print measurements to serial output
-#define POST //post measurements online
+#define PRINTSERIAL //print measurements to serial output
+#define POST //connect and post measurements online
 //#define QUIET //test posting but do not post
 //#define THINGSPEAK //post to ThingSpeak instead of another MQTT SERVER
-//#define VERBOSE //print connection status and posting details
+#define VERBOSE //print connection status and posting details
 
 //******************************************
 #if defined(SHT35A) || defined(SHT35B)
@@ -424,18 +424,28 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
                            "[{" +
                            "\"temperature\":" + String(ta) +
                            ",\"relativehumidity\":" + String(rha));
-      if ( ! isnan(getDewPoint(ta,rha)))
+      if ( ! isnan(getDewPoint(ta,rha))) {
         data +=     String(",\"dewpoint\":" + String(getDewPoint(ta,rha)));
-      else
+        if (ta > getDewPoint(ta,rha)) data += String(",\"dewpointstatus\":1");
+        else data += String(",\"dewpointstatus\":0");
+      }  
+      else {
         data +=     String(",\"dewpoint\":\"NaN\"");
+        data += String(",\"dewpointstatus\":\"NaN\"");
+      }
       data +=       String("\"address\":\"A\"" +
                            "}, {" +
                            \"temperature\":" + String(tb) +
                            ",\"relativehumidity\":" + String(rhb));
-      if ( ! isnan(getDewPoint(tb,rhb)))
+      if ( ! isnan(getDewPoint(tb,rhb))) {
         data +=     String(",\"dewpoint\":" + String(getDewPoint(tb,rhb)));
-      else
+        if (ta > getDewPoint(tb,rhb)) data += String(",\"dewpointstatus\":1");
+        else data += String(",\"dewpointstatus\":0");
+      }
+      else {
         data +=     String(",\"dewpoint\":\"NaN\"");
+        data += String(",\"dewpointstatus\":\"NaN\"");
+      }
       data +=       String("\"address\":\"B\"" +
                            "}]" +
                            ",\"temperaturedifference\":" + String(dt));
@@ -446,8 +456,15 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
     #elif defined(SHT35A)
       String data = String("{\"temperature\":" + String(ta));
       data += String(",\"relativehumidity\":" + String(rha));
-      if ( ! isnan(getDewPoint(ta,rha))) data += String(",\"dewpoint\":" + String(getDewPoint(ta,rha)));
-      else data += String(",\"dewpoint\":\"NaN\"");
+      if ( ! isnan(getDewPoint(ta,rha))){
+        data += String(",\"dewpoint\":" + String(getDewPoint(ta,rha)));
+        if (ta > getDewPoint(ta,rha)) data += String(",\"dewpointstatus\":1");
+        else data += String(",\"dewpointstatus\":0");
+      }
+      else {
+        data += String(",\"dewpoint\":\"NaN\"");
+        data += String(",\"dewpointstatus\":\"NaN\"");
+      }
       #ifdef SDP610
         data += String(",\"differentialpressure\":" + String(dp));
       #endif
@@ -455,8 +472,15 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
     #elif defined(SHT35B)
       String data = String("{\"temperature\":" + String(tb));
       data += String(",\"relativehumidity\":" + String(rhb));
-      if ( ! isnan(getDewPoint(ta,rha))) data += String(",\"dewpoint\":" + String(getDewPoint(tb,rhb)));
-      else data += String(",\"dewpoint\":\"NaN\"");
+      if ( ! isnan(getDewPoint(ta,rha))) {
+        data += String(",\"dewpoint\":" + String(getDewPoint(tb,rhb)));
+        if (ta > getDewPoint(tb,rhb)) data += String(",\"dewpointstatus\":1");
+        else data += String(",\"dewpointstatus\":0");
+      }
+      else {
+        data += String(",\"dewpoint\":\"NaN\"");
+        data += String(",\"dewpointstatus\":\"NaN\"");
+      }
       #ifdef SDP610
         data += String(",\"differentialpressure\":" + String(dp));
       #endif
