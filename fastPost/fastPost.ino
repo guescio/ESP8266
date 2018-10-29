@@ -1,9 +1,12 @@
 /* 
-  This sketch reads the ambient temperature, humidity and differential pressure, prints them to serial output, posts them online and then goes to sleep.
+  This sketch reads the ambient temperature, humidity and differential pressure,
+  prints them to serial output and posts them online.
+  This sketch does *NOT* go to sleep between measurements.
+  No need to connect pin 16 with the reset pin.
   The values measured are posted through MQTT.
   Temperature and humidity can be read from two different sensors.
-  Don't forget to connect pin 16 with the reset pin.
-  Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in the definitions section below.
+  Printing and posting can be enabled/disabled by uncommenting/commenting
+  the relative options in the definitions section below.
   To enable/disable a sensor, uncomment/comment its name in the definitions section below.
   Author: Guescio.
 */
@@ -13,14 +16,14 @@
 #define SHT35A //0x44 address
 //#define SHT35B //0x45 address
 //#define SDP610
-#define SLEEPTIME (30)//s
-//#define PRINTSERIAL //print measurements to serial output
-#define POST //connect and post measurements online
+#define INTERVAL (10000)//ms
+#define PRINTSERIAL //print measurements to serial output
+#define POST //post measurements online
 //#define QUIET //test posting but do not post
-//#define THINGSPEAK //post to ThingSpeak instead of another MQTT SERVER
-//#define VERBOSE //print connection status and posting details
+#define VERBOSE //print connection status and posting details
 
 //******************************************
+//include libraries
 #if defined(SHT35A) || defined(SHT35B)
 #include "Adafruit_SHT31.h"
 #endif
@@ -34,44 +37,38 @@
 #include <guescio.h>
 #endif
 #include <limits>
+#include <elapsedMillis.h>
 
 //******************************************
+//initialize sensors
 //SHT35 A
 #ifdef SHT35A
-#define SHT35AADDR (0x44)
-Adafruit_SHT31 sht31a = Adafruit_SHT31();
+  #define SHT35AADDR (0x44)
+  Adafruit_SHT31 sht31a = Adafruit_SHT31();
 #endif
 
 //SHT35 B
 #ifdef SHT35B
-#define SHT35BADDR (0x45)
-Adafruit_SHT31 sht31b = Adafruit_SHT31();
+  #define SHT35BADDR (0x45)
+  Adafruit_SHT31 sht31b = Adafruit_SHT31();
 #endif
 
 //SDP610 does not need initialization
 
 //******************************************
-//
-
+//wifi
 #ifdef POST
-const char* ssid     = WIFISSID;
-const char* password = WIFIPASSWORD;
+  const char* ssid     = WIFISSID;
+  const char* password = WIFIPASSWORD;
 #endif
 
 //******************************************
 //MQTT and wi-fi setup
 #ifdef POST
-  #ifdef THINGSPEAK
-    char MQTTServer[] = "mqtt.thingspeak.com";
-    long MQTTPort = 1883;//NOTE 1883 without SSL, 8883 with SSL
-    char MQTTUsername[] = TSWRITEAPIKEY;//TS channel write API key
-    long MQTTUsername = TSCHANNELID;
-  #else
-    char MQTTServer[] = MQTTSERVER;
-    long MQTTPort = 1883;
-    char MQTTUsername[] = MSUSER;
-    char MQTTPassword[] = MSPASSWORD;
-  #endif
+  char MQTTServer[] = MQTTSERVER;
+  long MQTTPort = 1883;
+  char MQTTUsername[] = MSUSER;
+  char MQTTPassword[] = MSPASSWORD;
   //NOTE need a random client ID for posting
   static const char alphanum[] ="0123456789"
                                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -81,79 +78,104 @@ const char* password = WIFIPASSWORD;
 #endif //POST
 
 //******************************************
+//time keeper
+elapsedMillis timeElapsed;
+
+//******************************************
 //setup
 void setup(){
   Serial.begin(115200);
   while(!Serial){}
   Serial.println();
+  #ifdef VERBOSE or PRINTSERIAL
+    Serial.println("fastPost");
+  #endif
 
   //initialize SHT35s
   #ifdef SHT35A
-  sht31a.begin(SHT35AADDR);
-  #endif
+    sht31a.begin(SHT35AADDR);
+  #endif //SHT35A
   #ifdef SHT35B
-  sht31b.begin(SHT35BADDR);
-  #endif
+    sht31b.begin(SHT35BADDR);
+  #endif //SHT35B
 
   //initialize SDP610
   #ifdef SDP610
-  Wire.begin();
-  Wire.setClockStretchLimit(1e4);//µs
-  #endif
+    Wire.begin();
+    Wire.setClockStretchLimit(1e4);//µs
+  #endif //DSP610
 
-  //set initial values
-  float ta = std::numeric_limits<double>::quiet_NaN();
-  float rha = std::numeric_limits<double>::quiet_NaN();
-  float dpa = std::numeric_limits<double>::quiet_NaN();
-  float tb = std::numeric_limits<double>::quiet_NaN();
-  float rhb = std::numeric_limits<double>::quiet_NaN();
-  float dpb = std::numeric_limits<double>::quiet_NaN();
-  float dp = std::numeric_limits<double>::quiet_NaN();
-  float dt = std::numeric_limits<double>::quiet_NaN();
-  
-  //read values before the ESP8266 heats up
-  #ifdef SHT35A
-    ta = sht31a.readTemperature();
-    rha = sht31a.readHumidity();
-  #endif //SHT35A
-  #ifdef SHT35B
-    tb = sht31b.readTemperature();
-    rhb = sht31b.readHumidity();
-  #endif //SHT35B
-  #ifdef SDP610
-    dp = SDP6x.GetPressureDiff();
-  #endif //SDP610
-
-  #if defined(SHT35A) && defined(SHT35B)
-    dt = ta-tb;
-  #endif //SHT35A && SHT35B
-
-  //print serial
-  #ifdef PRINTSERIAL
-    printSerial(ta, rha, tb, rhb, dp, dt);
-  #endif //PRINTSERIAL
-  
-  //connect to wifi and post data
   #ifdef POST
-    //set MQTT server
-    MQTTClient.setServer(MQTTServer, MQTTPort);
     //connect to wifi
     wifiConnect();
-    //post data
-    if (WiFi.status() == WL_CONNECTED){
-      postData(ta, rha, tb, rhb, dp, dt);
-    }
-    //disconnect before leaving
-    WiFi.disconnect();
+    //set MQTT server  
+    MQTTClient.setServer(MQTTServer, MQTTPort);
   #endif //POST
 
-  //deep sleep
-  ESP.deepSleep(SLEEPTIME*1e6);//µs
+  //set time elapsed past the interval
+  timeElapsed = INTERVAL+1;
 }
 
 //******************************************
-//loop() is empty since the ESP8266 is sent to deep sleep at the end of setup()
-void loop(){}
+//loop
+void loop(){
+
+  //chcek if loop interval is elapsed
+  if (timeElapsed > INTERVAL){
+
+    //reset elapsed time clock
+    //NOTE reset time right away for a more regular posting time
+    timeElapsed=0;
+
+    //set initial values to NaN
+    float ta = std::numeric_limits<double>::quiet_NaN();
+    float rha = std::numeric_limits<double>::quiet_NaN();
+    float dpa = std::numeric_limits<double>::quiet_NaN();
+    float tb = std::numeric_limits<double>::quiet_NaN();
+    float rhb = std::numeric_limits<double>::quiet_NaN();
+    float dpb = std::numeric_limits<double>::quiet_NaN();
+    float dp = std::numeric_limits<double>::quiet_NaN();
+    float dt = std::numeric_limits<double>::quiet_NaN();
+    
+    //read values
+    #ifdef SHT35A
+      ta = sht31a.readTemperature();
+      rha = sht31a.readHumidity();
+    #endif //SHT35A
+    #ifdef SHT35B
+      tb = sht31b.readTemperature();
+      rhb = sht31b.readHumidity();
+    #endif //SHT35B
+    #ifdef SDP610
+      dp = SDP6x.GetPressureDiff();
+    #endif
+    #if defined(SHT35A) && defined(SHT35B)
+      dt = ta-tb;
+    #endif //SHT35A && SHT35B
+
+    //print serial
+    #ifdef PRINTSERIAL
+      printSerial(ta, rha, tb, rhb, dp, dt);
+    #endif //PRINTSERIAL
+
+    //connect to wifi and post data
+    #ifdef POST
+      //connect to wifi if not already connected
+      if (WiFi.status() != WL_CONNECTED){
+        Serial.println();
+        Serial.println("wifi not connected");
+        wifiConnect();
+      }
+      //post data
+      if (WiFi.status() == WL_CONNECTED){
+        postData(ta, rha, tb, rhb, dp, dt);
+      }
+    #endif //POST
+  }
+
+  //yield to background functions before long delays
+  yield();
+}
 
 //******************************************
 //get dew point
@@ -170,7 +192,7 @@ float getDewPoint(float t, float rh){
 void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt){
 
   Serial.println();
-  Serial.println("sleep, measure, post, repeat");
+  //Serial.println("fastPost");
   #ifdef SHT35A
   Serial.print("t_a[C] RH_a[%] DP_a[C]");
   #endif
@@ -296,7 +318,7 @@ void wifiConnect(){
 #endif //POST
 
 //******************************************
-//post data online using MQTT protocol
+//post data using MQTT protocol
 #ifdef POST
 void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
   //connect to MQTT broker
@@ -305,7 +327,7 @@ void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
   if (MQTTClient.connected()){
     //call the loop continuously to establish connection to the server
     MQTTClient.loop();
-    //publish data to ThingSpeak
+    //publish data
     MQTTPublish(ta, rha, tb, rhb, dp, dt);
     //disconnect
     MQTTClient.disconnect();
@@ -314,6 +336,7 @@ void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
 #endif //POST
 
 //******************************************
+//connect to MQTT broker
 #ifdef POST
 void MQTTConnect(){
 
@@ -330,7 +353,7 @@ void MQTTConnect(){
   //try connecting for 5 times
   //using 2 second intervals
   for (int ii=0;ii<5;ii++){
-
+    
     //generate random clientID
     for (int i = 0; i<10; i++) {
         clientID[i] = alphanum[random(51)];
@@ -338,7 +361,7 @@ void MQTTConnect(){
 
     //https://community.thingspeak.com/forum/esp8266-wi-fi/problem-rc-4-using-library-pubsub/
     clientID[10]='\0';
-
+    
     //connect
     MQTTClient.connect(clientID, MQTTUsername, MQTTPassword);
     
@@ -384,7 +407,7 @@ void MQTTConnect(){
         break;
     }
     #endif
-    
+
     //upon successful connection
     if (MQTTClient.connected()){
       #ifdef VERBOSE
@@ -401,6 +424,7 @@ void MQTTConnect(){
 //******************************************
 //string to post with T, RH and dew point
 String getStringToPost(float t, float rh){
+
       String data = String("");
 
       //temperature
@@ -431,81 +455,48 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   #ifdef VERBOSE
     Serial.println("posting data");
   #endif
-
+ 
   //create data string to send to MQTT broker
-  #ifdef THINGSPEAK
-    #if defined(SHT35A) and defined(SHT35B)
-    String data = String("field1="  + String(ta) +
-                         "&field2=" + String(rha) +
-                         //"&field3=" + String(getDewPoint(ta,rha)) +
-                         "&field4=" + String(dp)+
-                         "&field5=" + String(tb) +
-                         "&field6=" + String(rhb) +
-                         //"&field7=" + String(getDewPoint(tb,rhb)) +
-                         "&field8=" + String(dt));         
-    #elif defined(SHT35A)
-    String data = String("field1="  + String(ta) +
-                         "&field2=" + String(rha) +
-                         "&field3=" + String(getDewPoint(ta,rha)) +
-                         "&field4=" + String(dp));
-    #elif defined(SHT35B)
-    String data = String("field1="  + String(tb) +
-                         "&field2=" + String(rhb) +
-                         "&field3=" + String(getDewPoint(tb,rhb)) +
-                         "&field4=" + String(dp));
-    #endif
+  #if defined(SHT35A) and defined(SHT35B)
+    String data = String("");
+    data += String("[{{");
+    data += getStringToPost(ta,rha);
+    data += String("},\"address\":\"A\"}, {{");
+    data += getStringToPost(tb,rhb);
+    data += String("},\"address\":\"B\"}]");
+    data += String(",\"temperaturedifference\":" + String(dt));
+    #ifdef SDP610
+      data += String(",\"differentialpressure\":" + String(dp));
+    #endif //SDP610
+    data += String("}");
     
-  #else //MQTT broker other than THINGSPEAK
-    #if defined(SHT35A) and defined(SHT35B)
-      String data = String("");
-      data += String("[{{");
-      data += getStringToPost(ta,rha);
-      data += String("},\"address\":\"A\"}, {{");
-      data += getStringToPost(tb,rhb);
-      data += String("},\"address\":\"B\"}}]");
-      data += String(",\"temperaturedifference\":" + String(dt));
-      #ifdef SDP610
-        data += String(",\"differentialpressure\":" + String(dp));
-      #endif
-      data += String("}");
-      
-    #elif defined(SHT35A)
-      String data = ("{{");
-      data += getStringToPost(ta,rha);
-      #ifdef SDP610
-        data += String(",\"differentialpressure\":" + String(dp));
-      #endif //SDP610
-      data += String("},\"address\":\"A\"}");
+  #elif defined(SHT35A)
+    String data = ("{{");
+    data += getStringToPost(ta,rha);
+    #ifdef SDP610
+      data += String(",\"differentialpressure\":" + String(dp));
+    #endif //SDP610
+    data += String("},\"address\":\"A\"}");
     
-    #elif defined(SHT35B)
-      String data = ("{{");
-      data += getStringToPost(tb,rhb);
-      #ifdef SDP610
-        data += String(",\"differentialpressure\":" + String(dp));
-      #endif //SDP610
-      data += String("},\"address\":\"B\"}");
-    #endif
-  #endif //THINGSPEAK or other MQTT server
+  #elif defined(SHT35B)
+    String data = ("{{");
+    data += getStringToPost(tb,rhb);
+    #ifdef SDP610
+      data += String(",\"differentialpressure\":" + String(dp));
+    #endif //SDP610
+    data += String("},\"address\":\"B\"}");
+  #endif
 
-  //TEST
-  //data = String("[{{\"t\":21.00,\"rh\":45.00},\"add\":\"A\"}, {{\"t\":22.00,\"rh\":46.00},\"add\":\"B\"}], {\"dt\":1.00}");//TEST //OK
-  //data = String("[{{\"temperature\":21.00,\"relativehumidity\":45.00},\"address\":\"A\"}, {{\"temperature\":22.00,\"relativehumidity\":46.00},\"address\":\"B\"}], {\"temperaturedifference\":1.00}");//TEST //NOT OK
-  //END TEST
-  
   int length = data.length();
   char msgBuffer[length];
   data.toCharArray(msgBuffer,length+1);
   #ifdef VERBOSE
-  Serial.print("message: ");
-  Serial.println(msgBuffer);
+    Serial.print("message: ");
+    Serial.println(msgBuffer);
   #endif
 
   //create topic string
-  #ifdef THINGSPEAK
-    String topicString = "channels/" + String(channelID) + "/publish/"+String(MQTTPassword);
-  #else
-    String topicString = MSTOPIC;
-  #endif
+  String topicString = MSTOPIC;
   length=topicString.length();
   char topicBuffer[length];
   topicString.toCharArray(topicBuffer,length+1);
@@ -516,15 +507,15 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   
   //publish
   #ifndef QUIET
-    if (MQTTClient.publish(topicBuffer, msgBuffer)) {
-      #ifdef VERBOSE
-        Serial.println("success");
-      #endif
-    } else {
-      #ifdef VERBOSE
-        Serial.println("fail");
-      #endif
-    }
+  if (MQTTClient.publish(topicBuffer, msgBuffer)) {
+    #ifdef VERBOSE
+      Serial.println("success");
+    #endif
+  } else {
+    #ifdef VERBOSE
+      Serial.println("fail");
+    #endif
+  }
   Serial.println();
   #endif
 }
