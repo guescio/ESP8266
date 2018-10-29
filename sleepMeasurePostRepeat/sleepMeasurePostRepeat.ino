@@ -14,11 +14,11 @@
 //#define SHT35B //0x45 address
 //#define SDP610
 #define SLEEPTIME (30)//s
-#define PRINTSERIAL //print measurements to serial output
+//#define PRINTSERIAL //print measurements to serial output
 #define POST //connect and post measurements online
 //#define QUIET //test posting but do not post
 //#define THINGSPEAK //post to ThingSpeak instead of another MQTT SERVER
-#define VERBOSE //print connection status and posting details
+//#define VERBOSE //print connection status and posting details
 
 //******************************************
 #if defined(SHT35A) || defined(SHT35B)
@@ -81,6 +81,7 @@ const char* password = WIFIPASSWORD;
 #endif //POST
 
 //******************************************
+//setup
 void setup(){
   Serial.begin(115200);
   while(!Serial){}
@@ -100,7 +101,7 @@ void setup(){
   Wire.setClockStretchLimit(1e4);//µs
   #endif
 
-  //read values before the ESP8266 heats up
+  //set initial values
   float ta = std::numeric_limits<double>::quiet_NaN();
   float rha = std::numeric_limits<double>::quiet_NaN();
   float dpa = std::numeric_limits<double>::quiet_NaN();
@@ -109,32 +110,42 @@ void setup(){
   float dpb = std::numeric_limits<double>::quiet_NaN();
   float dp = std::numeric_limits<double>::quiet_NaN();
   float dt = std::numeric_limits<double>::quiet_NaN();
+  
+  //read values before the ESP8266 heats up
   #ifdef SHT35A
-  ta = sht31a.readTemperature();
-  rha = sht31a.readHumidity();
-  #endif
+    ta = sht31a.readTemperature();
+    rha = sht31a.readHumidity();
+  #endif //SHT35A
   #ifdef SHT35B
-  tb = sht31b.readTemperature();
-  rhb = sht31b.readHumidity();
-  #endif
+    tb = sht31b.readTemperature();
+    rhb = sht31b.readHumidity();
+  #endif //SHT35B
   #ifdef SDP610
-  dp = SDP6x.GetPressureDiff();
-  #endif
+    dp = SDP6x.GetPressureDiff();
+  #endif //SDP610
 
   #if defined(SHT35A) && defined(SHT35B)
-  dt = ta-tb;
-  #endif
+    dt = ta-tb;
+  #endif //SHT35A && SHT35B
 
   //print serial
   #ifdef PRINTSERIAL
-  printSerial(ta, rha, tb, rhb, dp, dt);
-  #endif
+    printSerial(ta, rha, tb, rhb, dp, dt);
+  #endif //PRINTSERIAL
   
-  //post data online
+  //connect to wifi and post data
   #ifdef POST
-  MQTTClient.setServer(MQTTServer, MQTTPort);
-  postData(ta, rha, tb, rhb, dp, dt);
-  #endif
+    //set MQTT server
+    MQTTClient.setServer(MQTTServer, MQTTPort);
+    //connect to wifi
+    wifiConnect();
+    //post data
+    if (WiFi.status() == WL_CONNECTED){
+      postData(ta, rha, tb, rhb, dp, dt);
+    }
+    //disconnect before leaving
+    WiFi.disconnect();
+  #endif //POST
 
   //deep sleep
   ESP.deepSleep(SLEEPTIME*1e6);//µs
@@ -157,14 +168,14 @@ float getDewPoint(float t, float rh){
 //******************************************
 //print measurements to serial output
 void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt){
-  /*
+
   Serial.println();
   Serial.println("sleep, measure, post, repeat");
   #ifdef SHT35A
-  Serial.print(" t_a[C] RH_a[%]");
+  Serial.print("t_a[C] RH_a[%] DP_a[C]");
   #endif
-  #ifdef SHT35A
-  Serial.print(" t_b[C] RH_b[%]");
+  #ifdef SHT35B
+  Serial.print(" t_b[C] RH_b[%] DP_b[C]");
   #endif
   #ifdef SDP610
   Serial.print(" dP[Pa]");
@@ -173,7 +184,6 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt){
   Serial.print(" dt[C]");
   #endif
   Serial.println();
-  */
   
   //print measurements to serial output
   #ifdef SHT35A
@@ -208,12 +218,11 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt){
 }
 
 //******************************************
-//post data online using MQTT protocol
+//connect to wifi
+//try connecting for 20 times with 1 s delay
 #ifdef POST
-void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
+void wifiConnect(){
 
-  //------------------------------------------
-  //connect to the wifi
   //https://github.com/esp8266/Arduino/issues/2702
   WiFi.disconnect();
   WiFi.begin(ssid, password);
@@ -226,7 +235,7 @@ void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
     Serial.println();
     Serial.print("wifi connecting to ");
     Serial.println(ssid);
-    
+
     Serial.print("status: ");
     switch (WiFi.status()){
       case 0:
@@ -249,56 +258,58 @@ void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
         break;
       case 6:
         Serial.println("disconnected");
+        delay(2000);//ms //TEST
         break;
       default:
         Serial.println("unknown");
         break;
     }
-    #endif
+    #endif //VERBOSE
     
-    if (WiFi.status() == WL_CONNECTED) break;
-    delay(1000);
-  }
-
-  //------------------------------------------
-  if (WiFi.status() == WL_CONNECTED){
-
-    #ifdef VERBOSE
-    Serial.print("wifi connected to ");
-    Serial.println(ssid);
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("RSSI: ");
-    Serial.println(WiFi.RSSI());
-    Serial.println();
-    #endif
-    
-    //------------------------------------------
-    //post data using MQTT protocol
-    //connect MQTT
-    MQTTConnect();
-    if (MQTTClient.connected()){
-      //call the loop continuously to establish connection to the server
-      MQTTClient.loop();
-      //publish data to ThingSpeak
-      MQTTPublish(ta, rha, tb, rhb, dp, dt);
-      //disconnect
-      MQTTClient.disconnect();
+    if (WiFi.status() == WL_CONNECTED){
+      #ifdef VERBOSE
+        Serial.println();
+        Serial.print("wifi connected to ");
+        Serial.println(ssid);
+        Serial.print("IP: ");
+        Serial.println(WiFi.localIP());
+        Serial.print("RSSI: ");
+        Serial.println(WiFi.RSSI());
+        Serial.println();
+      #endif //VERBOSE
+      break;
     }
-  }
-  //------------------------------------------
-  else {
-    #ifdef VERBOSE
-    Serial.print("could not connect to ");
-    Serial.println(ssid);
-    Serial.println("abort");
-    Serial.println();
-    #endif
+    
+    //delay between trials
+    delay(1000);//ms
   }
 
-  //------------------------------------------
-  //disconnect before leaving
-  WiFi.disconnect();
+  #ifdef VERBOSE
+    if (WiFi.status() != WL_CONNECTED){
+      Serial.print("could not connect to ");
+      Serial.println(ssid);
+      Serial.println("abort");
+      Serial.println();
+    }
+  #endif
+}
+#endif //POST
+
+//******************************************
+//post data online using MQTT protocol
+#ifdef POST
+void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
+  //connect to MQTT broker
+  MQTTConnect();
+  
+  if (MQTTClient.connected()){
+    //call the loop continuously to establish connection to the server
+    MQTTClient.loop();
+    //publish data to ThingSpeak
+    MQTTPublish(ta, rha, tb, rhb, dp, dt);
+    //disconnect
+    MQTTClient.disconnect();
+  }
 }
 #endif //POST
 
@@ -308,9 +319,9 @@ void MQTTConnect(){
 
   //show status
   #ifdef VERBOSE
-  Serial.print("connecting to MQTT server ");
-  Serial.print(MQTTServer);
-  Serial.println("...");
+    Serial.print("connecting to MQTT server ");
+    Serial.print(MQTTServer);
+    Serial.println("...");
   #endif
 
   //random clientID
@@ -377,15 +388,40 @@ void MQTTConnect(){
     //upon successful connection
     if (MQTTClient.connected()){
       #ifdef VERBOSE
-      Serial.print("MQTT connected to ");
-      Serial.println(MQTTServer);
+        Serial.print("MQTT connected to ");
+        Serial.println(MQTTServer);
       #endif
       break;
     }
-    else delay(2000);
+    else delay(2000);//ms
   }//END connecting loop
 }
 #endif //POST
+
+//******************************************
+//string to post with T, RH and dew point
+String getStringToPost(float t, float rh){
+      String data = String("");
+
+      //temperature
+      data += String("\"temperature\":" + String(t));
+      
+      //relative humidity
+      data += String(",\"relativehumidity\":" + String(rh));
+      
+      //dew point
+      if ( ! isnan(getDewPoint(t,rh))){
+        data += String(",\"dewpoint\":" + String(getDewPoint(t,rh)));
+        if (t > getDewPoint(t,rh)) data += String(",\"dewpointstatus\":1");
+        else data += String(",\"dewpointstatus\":0");
+      }
+      else {
+        data += String(",\"dewpoint\":\"NaN\"");
+        data += String(",\"dewpointstatus\":\"NaN\"");
+      }
+      
+      return data;
+}
 
 //******************************************
 #ifdef POST
@@ -393,7 +429,7 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
 
   //print
   #ifdef VERBOSE
-  Serial.println("posting data");
+    Serial.println("posting data");
   #endif
 
   //create data string to send to MQTT broker
@@ -418,75 +454,43 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
                          "&field3=" + String(getDewPoint(tb,rhb)) +
                          "&field4=" + String(dp));
     #endif
-  #else
+    
+  #else //MQTT broker other than THINGSPEAK
     #if defined(SHT35A) and defined(SHT35B)
-      String data = String("{"+
-                           "[{" +
-                           "\"temperature\":" + String(ta) +
-                           ",\"relativehumidity\":" + String(rha));
-      if ( ! isnan(getDewPoint(ta,rha))) {
-        data +=     String(",\"dewpoint\":" + String(getDewPoint(ta,rha)));
-        if (ta > getDewPoint(ta,rha)) data += String(",\"dewpointstatus\":1");
-        else data += String(",\"dewpointstatus\":0");
-      }  
-      else {
-        data +=     String(",\"dewpoint\":\"NaN\"");
-        data += String(",\"dewpointstatus\":\"NaN\"");
-      }
-      data +=       String("\"address\":\"A\"" +
-                           "}, {" +
-                           \"temperature\":" + String(tb) +
-                           ",\"relativehumidity\":" + String(rhb));
-      if ( ! isnan(getDewPoint(tb,rhb))) {
-        data +=     String(",\"dewpoint\":" + String(getDewPoint(tb,rhb)));
-        if (ta > getDewPoint(tb,rhb)) data += String(",\"dewpointstatus\":1");
-        else data += String(",\"dewpointstatus\":0");
-      }
-      else {
-        data +=     String(",\"dewpoint\":\"NaN\"");
-        data += String(",\"dewpointstatus\":\"NaN\"");
-      }
-      data +=       String("\"address\":\"B\"" +
-                           "}]" +
-                           ",\"temperaturedifference\":" + String(dt));
+      String data = String("");
+      data += String("[{{");
+      data += getStringToPost(ta,rha);
+      data += String("},\"address\":\"A\"}, {{");
+      data += getStringToPost(tb,rhb);
+      data += String("},\"address\":\"B\"}}]");
+      data += String(",\"temperaturedifference\":" + String(dt));
       #ifdef SDP610
-        data +=     String(",\"differentialpressure\":" + String(dp));
+        data += String(",\"differentialpressure\":" + String(dp));
       #endif
-      data +=       String("}");
+      data += String("}");
+      
     #elif defined(SHT35A)
-      String data = String("{\"temperature\":" + String(ta));
-      data += String(",\"relativehumidity\":" + String(rha));
-      if ( ! isnan(getDewPoint(ta,rha))){
-        data += String(",\"dewpoint\":" + String(getDewPoint(ta,rha)));
-        if (ta > getDewPoint(ta,rha)) data += String(",\"dewpointstatus\":1");
-        else data += String(",\"dewpointstatus\":0");
-      }
-      else {
-        data += String(",\"dewpoint\":\"NaN\"");
-        data += String(",\"dewpointstatus\":\"NaN\"");
-      }
+      String data = ("{{");
+      data += getStringToPost(ta,rha);
       #ifdef SDP610
         data += String(",\"differentialpressure\":" + String(dp));
-      #endif
-      data+=String("}");
+      #endif //SDP610
+      data += String("},\"address\":\"A\"}");
+    
     #elif defined(SHT35B)
-      String data = String("{\"temperature\":" + String(tb));
-      data += String(",\"relativehumidity\":" + String(rhb));
-      if ( ! isnan(getDewPoint(ta,rha))) {
-        data += String(",\"dewpoint\":" + String(getDewPoint(tb,rhb)));
-        if (ta > getDewPoint(tb,rhb)) data += String(",\"dewpointstatus\":1");
-        else data += String(",\"dewpointstatus\":0");
-      }
-      else {
-        data += String(",\"dewpoint\":\"NaN\"");
-        data += String(",\"dewpointstatus\":\"NaN\"");
-      }
+      String data = ("{{");
+      data += getStringToPost(tb,rhb);
       #ifdef SDP610
         data += String(",\"differentialpressure\":" + String(dp));
-      #endif
-      data+=String("}");
+      #endif //SDP610
+      data += String("},\"address\":\"B\"}");
     #endif
-  #endif
+  #endif //THINGSPEAK or other MQTT server
+
+  //TEST
+  //data = String("[{{\"t\":21.00,\"rh\":45.00},\"add\":\"A\"}, {{\"t\":22.00,\"rh\":46.00},\"add\":\"B\"}], {\"dt\":1.00}");//TEST //OK
+  //data = String("[{{\"temperature\":21.00,\"relativehumidity\":45.00},\"address\":\"A\"}, {{\"temperature\":22.00,\"relativehumidity\":46.00},\"address\":\"B\"}], {\"temperaturedifference\":1.00}");//TEST //NOT OK
+  //END TEST
   
   int length = data.length();
   char msgBuffer[length];
@@ -496,7 +500,7 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   Serial.println(msgBuffer);
   #endif
 
-  //create a topic string and publish data to channel feed
+  //create topic string
   #ifdef THINGSPEAK
     String topicString = "channels/" + String(channelID) + "/publish/"+String(MQTTPassword);
   #else
@@ -506,19 +510,19 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   char topicBuffer[length];
   topicString.toCharArray(topicBuffer,length+1);
   #ifdef VERBOSE
-  Serial.print("topic: ");
-  Serial.println(topicString);
+    Serial.print("topic: ");
+    Serial.println(topicString);
   #endif
   
   //publish
   #ifndef QUIET
     if (MQTTClient.publish(topicBuffer, msgBuffer)) {
       #ifdef VERBOSE
-      Serial.println("success");
+        Serial.println("success");
       #endif
     } else {
       #ifdef VERBOSE
-      Serial.println("fail");
+        Serial.println("fail");
       #endif
     }
   Serial.println();

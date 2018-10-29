@@ -52,6 +52,8 @@ void setup() {
   Serial.println(WiFi.subnetMask());
   Serial.print("gateway: ");
   Serial.println(WiFi.gatewayIP());
+  Serial.print("RSSI: ");
+  Serial.println(WiFi.RSSI());
 }
 
 //******************************************
