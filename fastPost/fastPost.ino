@@ -1,12 +1,10 @@
 /* 
-  This sketch reads the ambient temperature, humidity and differential pressure,
-  prints them to serial output and posts them online.
+  This sketch reads the ambient temperature, humidity and differential pressure, prints them to serial output and posts them online.
   This sketch does *NOT* go to sleep between measurements.
   No need to connect pin 16 with the reset pin.
   The values measured are posted through MQTT.
   Temperature and humidity can be read from two different sensors.
-  Printing and posting can be enabled/disabled by uncommenting/commenting
-  the relative options in the definitions section below.
+  Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in the definitions section below.
   To enable/disable a sensor, uncomment/comment its name in the definitions section below.
   Author: Guescio.
 */
@@ -21,6 +19,7 @@
 #define POST //post measurements online
 //#define QUIET //test posting but do not post
 #define VERBOSE //print connection status and posting details
+//#define LOCATION ("location") //location of the measurement device
 
 //******************************************
 //include libraries
@@ -67,8 +66,8 @@
 #ifdef POST
   char MQTTServer[] = MQTTSERVER;
   long MQTTPort = 1883;
-  char MQTTUsername[] = MSUSER;
-  char MQTTPassword[] = MSPASSWORD;
+  char MQTTUsername[] = MQTTUSER;
+  char MQTTPassword[] = MQTTPASSWORD;
   //NOTE need a random client ID for posting
   static const char alphanum[] ="0123456789"
                                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -461,9 +460,9 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
     String data = String("");
     data += String("[{{");
     data += getStringToPost(ta,rha);
-    data += String("},\"address\":\"A\"}, {{");
+    data += String(",\"address\":\"A\"},{");
     data += getStringToPost(tb,rhb);
-    data += String("},\"address\":\"B\"}]");
+    data += String(",\"address\":\"B\"}]");
     data += String(",\"temperaturedifference\":" + String(dt));
     #ifdef SDP610
       data += String(",\"differentialpressure\":" + String(dp));
@@ -471,12 +470,12 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
     data += String("}");
     
   #elif defined(SHT35A)
-    String data = ("{{");
+    String data = ("{");
     data += getStringToPost(ta,rha);
     #ifdef SDP610
       data += String(",\"differentialpressure\":" + String(dp));
     #endif //SDP610
-    data += String("},\"address\":\"A\"}");
+    data += String(",\"address\":\"A\"}");
     
   #elif defined(SHT35B)
     String data = ("{{");
@@ -484,7 +483,7 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
     #ifdef SDP610
       data += String(",\"differentialpressure\":" + String(dp));
     #endif //SDP610
-    data += String("},\"address\":\"B\"}");
+    data += String(",\"address\":\"B\"}");
   #endif
 
   int length = data.length();
@@ -496,7 +495,7 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   #endif
 
   //create topic string
-  String topicString = MSTOPIC;
+  String topicString = MQTTTOPIC;
   length=topicString.length();
   char topicBuffer[length];
   topicString.toCharArray(topicBuffer,length+1);
