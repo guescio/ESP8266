@@ -11,14 +11,13 @@
 //******************************************
 //definitions
 #define SHT35A //0x44 address
-//#define SHT35B //0x45 address
+#define SHT35B //0x45 address
 //#define SDP610
-#define SLEEPTIME (60)//s
-//#define PRINTSERIAL //print measurements to serial output
+#define SLEEPTIME (30)//s
+#define PRINTSERIAL //print measurements to serial output
 #define POST //connect and post measurements online
 //#define QUIET //test posting but do not post
-//#define THINGSPEAK //post to ThingSpeak instead of another MQTT SERVER
-//#define VERBOSE //print connection status and posting details
+#define VERBOSE //print connection status and posting details
 //#define LOCATION ("location") //location of the measurement device
 
 //******************************************
@@ -62,17 +61,10 @@ const char* password = WIFIPASSWORD;
 //******************************************
 //MQTT and wi-fi setup
 #ifdef POST
-  #ifdef THINGSPEAK
-    char MQTTServer[] = "mqtt.thingspeak.com";
-    long MQTTPort = 1883;//NOTE 1883 without SSL, 8883 with SSL
-    char MQTTUsername[] = TSWRITEAPIKEY;//TS channel write API key
-    long MQTTUsername = TSCHANNELID;
-  #else
-    char MQTTServer[] = MQTTSERVER;
-    long MQTTPort = 1883;
-    char MQTTUsername[] = MQTTUSER;
-    char MQTTPassword[] = MQTTPASSWORD;
-  #endif
+  char MQTTServer[] = MQTTSERVER;
+  long MQTTPort = 1883;
+  char MQTTUsername[] = MQTTUSER;
+  char MQTTPassword[] = MQTTPASSWORD;
   //NOTE need a random client ID for posting
   static const char alphanum[] ="0123456789"
                                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -306,7 +298,7 @@ void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
   if (MQTTClient.connected()){
     //call the loop continuously to establish connection to the server
     MQTTClient.loop();
-    //publish data to ThingSpeak
+    //publish data
     MQTTPublish(ta, rha, tb, rhb, dp, dt);
     //disconnect
     MQTTClient.disconnect();
@@ -434,71 +426,47 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   #endif
 
   //create data string to send to MQTT broker
-  #ifdef THINGSPEAK
-    #if defined(SHT35A) and defined(SHT35B)
-    String data = String("field1="  + String(ta) +
-                         "&field2=" + String(rha) +
-                         //"&field3=" + String(getDewPoint(ta,rha)) +
-                         "&field4=" + String(dp)+
-                         "&field5=" + String(tb) +
-                         "&field6=" + String(rhb) +
-                         //"&field7=" + String(getDewPoint(tb,rhb)) +
-                         "&field8=" + String(dt));         
-    #elif defined(SHT35A)
-    String data = String("field1="  + String(ta) +
-                         "&field2=" + String(rha) +
-                         "&field3=" + String(getDewPoint(ta,rha)) +
-                         "&field4=" + String(dp));
-    #elif defined(SHT35B)
-    String data = String("field1="  + String(tb) +
-                         "&field2=" + String(rhb) +
-                         "&field3=" + String(getDewPoint(tb,rhb)) +
-                         "&field4=" + String(dp));
+  #if defined(SHT35A) and defined(SHT35B)
+    String data = String("");
+    data += String("[{{");
+    data += getStringToPost(ta,rha);
+    data += String(",\"address\":\"A\"}, {");
+    data += getStringToPost(tb,rhb);
+    data += String(",\"address\":\"B\"}]");
+    data += String(",\"temperaturedifference\":" + String(dt));
+    #ifdef SDP610
+      data += String(",\"differentialpressure\":" + String(dp));
     #endif
-    
-  #else //MQTT broker other than THINGSPEAK
-    #if defined(SHT35A) and defined(SHT35B)
-      String data = String("");
-      data += String("[{{");
-      data += getStringToPost(ta,rha);
-      data += String(",\"address\":\"A\"}, {");
-      data += getStringToPost(tb,rhb);
-      data += String(",\"address\":\"B\"}]");
-      data += String(",\"temperaturedifference\":" + String(dt));
-      #ifdef SDP610
-        data += String(",\"differentialpressure\":" + String(dp));
-      #endif
-      data += String("}");
+    data += String("}");
       
-    #elif defined(SHT35A)
-      String data = ("{");
-      data += getStringToPost(ta,rha);
-      #ifdef SDP610
-        data += String(",\"differentialpressure\":" + String(dp));
-      #endif //SDP610
-      data += String(",\"address\":\"A\"");
-      #ifdef LOCATION
-        data += String(",\"location\":\"");
-        data += LOCATION;
-        data += String("\"");
-      #endif //LOCATION
-      data += String("}");
+  #elif defined(SHT35A)
+    String data = ("{");
+    data += getStringToPost(ta,rha);
+    #ifdef SDP610
+      data += String(",\"differentialpressure\":" + String(dp));
+    #endif //SDP610
+    data += String(",\"address\":\"A\"");
+    #ifdef LOCATION
+      data += String(",\"location\":\"");
+      data += LOCATION;
+      data += String("\"");
+    #endif //LOCATION
+    data += String("}");
       
-    #elif defined(SHT35B)
-      String data = ("{");
-      data += getStringToPost(tb,rhb);
-      #ifdef SDP610
-        data += String(",\"differentialpressure\":" + String(dp));
-      #endif //SDP610
-      data += String(",\"address\":\"B\"");
-      #ifdef LOCATION
-        data += String(",\"location\":\"");
-        data += LOCATION;
-        data += String("\"");
-      #endif //LOCATION
-      data += String("}");
-    #endif
-  #endif //THINGSPEAK or other MQTT server
+  #elif defined(SHT35B)
+    String data = ("{");
+    data += getStringToPost(tb,rhb);
+    #ifdef SDP610
+      data += String(",\"differentialpressure\":" + String(dp));
+    #endif //SDP610
+    data += String(",\"address\":\"B\"");
+    #ifdef LOCATION
+      data += String(",\"location\":\"");
+      data += LOCATION;
+      data += String("\"");
+    #endif //LOCATION
+    data += String("}");
+  #endif //SHT35A or SHT35B definition
   
   int length = data.length();
   char msgBuffer[length];
@@ -509,15 +477,11 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   #endif
 
   //create topic string
-  #ifdef THINGSPEAK
-    String topicString = "channels/" + String(channelID) + "/publish/"+String(MQTTPassword);
-  #else
-    String topicString = MQTTTOPIC;
-    #ifdef LOCATION
-      topicString += "/";
-      topicString += LOCATION;
-    #endif //LOCATION
-  #endif
+  String topicString = MQTTTOPIC;
+  #ifdef LOCATION
+    topicString += "/";
+    topicString += LOCATION;
+  #endif //LOCATION
   length=topicString.length();
   char topicBuffer[length];
   topicString.toCharArray(topicBuffer,length+1);
