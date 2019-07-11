@@ -18,7 +18,7 @@
 #define POST //connect and post measurements online
 //#define QUIET //connect to broker but do not post
 #define VERBOSE //print connection status and posting details
-#define LOCATION ("location") //location of the measurement device
+//#define LOCATION ("location") //location of the measurement device
 
 //******************************************
 #if defined(SHTA) || defined(SHTB)
@@ -173,6 +173,7 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt){
 
   Serial.println();
   Serial.println("sleep, measure, post, repeat");
+  Serial.println();
   #ifdef SHTA
     Serial.print("t_a[C] RH_a[%] DP_a[C]");
   #endif
@@ -228,15 +229,15 @@ void wifiConnect(){
   WiFi.disconnect();
   WiFi.begin(ssid, password);
 
+  Serial.println();
+  Serial.print("wifi connecting to ");
+  Serial.println(ssid);
+
   //connect
   for (int ii=0;ii<20;ii++){
 
     //status
     #ifdef VERBOSE
-    Serial.println();
-    Serial.print("wifi connecting to ");
-    Serial.println(ssid);
-
     Serial.print("status: ");
     switch (WiFi.status()){
       case 0:
