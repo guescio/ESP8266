@@ -13,6 +13,12 @@
 #define SHTA //0x44 address //SHT35A or SHT85
 #define SHTB //0x45 address //SHT35B
 #define SDP610
+#define ADC//NOTE: set also the voltage divider resistor value 
+#define ADCRDIV (84.5e3)//ADC voltage resistor value [Ohm]
+#define NTC//NOTE: set also the voltage divider resistor value and NTC R0, T0 and B values
+#define NTCR0 (1e4)//NTC R0 [Ohm]
+#define NTCT0 (298.15)//NTC T0 [K]
+#define NTCB (3435)//NTC B
 #define SLEEPTIME (30)//s
 #define PRINTSERIAL //print measurements to serial output
 #define POST //connect and post measurements online
@@ -52,6 +58,11 @@
 #endif
 
 //SDP610 does not need initialization
+
+#ifdef NTC
+  //voltage divider resistor
+  const float r = 10e3;//Ohm
+#endif
 
 //******************************************
 //
@@ -107,6 +118,8 @@ void setup(){
   float dpb = std::numeric_limits<double>::quiet_NaN();//dew point B
   float dp = std::numeric_limits<double>::quiet_NaN();//differential pressure
   float dt = std::numeric_limits<double>::quiet_NaN();//temperature difference
+  int adc = std::numeric_limits<double>::quiet_NaN();//ADC
+  float tntc = std::numeric_limits<double>::quiet_NaN();//temperature NTC
   
   //read values before the ESP8266 heats up
   #ifdef SHTA
@@ -127,11 +140,19 @@ void setup(){
     dt = ta-tb;
   #endif //SHTA && SHTB
 
+  #ifdef ADC
+    adc = getADC();
+  #endif //ADC
+
+  #ifdef NTC
+    tntc = getTNTC(adc);
+  #endif //NTC
+
   //print serial
   #ifdef PRINTSERIAL
-    printSerial(ta, rha, tb, rhb, dp, dt);
+    printSerial(ta, rha, tb, rhb, dp, dt, adc, tntc);
   #endif //PRINTSERIAL
-  
+
   //connect to wifi and post data
   #ifdef POST
     //set MQTT server
@@ -142,7 +163,7 @@ void setup(){
   
     //post data
     if (WiFi.status() == WL_CONNECTED){
-      postData(ta, rha, tb, rhb, dp, dt);
+      postData(ta, rha, tb, rhb, dp, dt, adc, tntc);
     }
   
     //disconnect before leaving
@@ -168,8 +189,36 @@ float getDewPoint(float t, float rh){
 }
 
 //******************************************
+//get ADC value
+float getADC(){
+  int value = 0;
+  int nreadings = 10;
+  for (int ii=0; ii<nreadings; ii++){
+    value += analogRead(A0);
+    delay(10);//ms
+  }
+  if (! isnan(value)){
+    return value/nreadings;
+  }
+  else return std::numeric_limits<double>::quiet_NaN();
+}
+
+//******************************************
+//get NTC temperature
+float getTNTC(int adc){
+  if (isnan(adc)){
+    adc = getADC();
+  }
+  if (! isnan(adc)){
+    float rntc = ADCRDIV/(1023/adc-1);//Ohm
+    return (1./((1./NTCT0) + (1./NTCB)*log((rntc/NTCR0))) -273.15);//C
+  }
+  else return std::numeric_limits<double>::quiet_NaN();
+}
+
+//******************************************
 //print measurements to serial output
-void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt){
+void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc){
 
   Serial.println();
   Serial.println("sleep, measure, post, repeat");
@@ -185,6 +234,12 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt){
   #endif
   #if defined(SHTA) && defined(SHTB)
     Serial.print(" dt[C]");
+  #endif
+  #ifdef ADC
+    Serial.print(" ADC");
+  #endif
+  #ifdef NTC
+    Serial.print(" t_NTC[C]");
   #endif
   Serial.println();
   
@@ -214,6 +269,16 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt){
 
   #if defined(SHTA) && defined(SHTB)
     Serial.print(dt);//temperature difference
+  #endif
+
+  #ifdef ADC
+    Serial.print(adc);//ADC
+    Serial.print("  ");
+  #endif
+
+  #ifdef NTC
+    Serial.print(tntc);//temperature
+    Serial.print("  ");
   #endif
 
   Serial.println();
@@ -300,7 +365,7 @@ void wifiConnect(){
 //******************************************
 //post data online using MQTT protocol
 #ifdef POST
-void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
+void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc){
   //connect to MQTT broker
   MQTTConnect();
   
@@ -309,7 +374,7 @@ void postData(float ta, float rha, float tb, float rhb, float dp, float dt){
     MQTTClient.loop();
     
     //publish data
-    MQTTPublish(ta, rha, tb, rhb, dp, dt);
+    MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc);
     
     //disconnect
     MQTTClient.disconnect();
@@ -430,7 +495,7 @@ String getStringToPost(float t, float rh){
 
 //******************************************
 #ifdef POST
-void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
+void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc){
 
   //print
   #ifdef VERBOSE
@@ -438,6 +503,7 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   #endif
 
   //create data string to send to MQTT broker
+
   //SHTA and SHTB
   #if defined(SHTA) and defined(SHTB)
     String data = String("");
@@ -447,42 +513,37 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
     data += getStringToPost(tb,rhb);
     data += String(",\"addr\":\"B\"}]");
     data += String(",\"dtemp\":" + String(dt));
-    #ifdef SDP610
-      data += String(",\"dpress\":" + String(dp));
-    #endif //SDP610
-    data += String("}");
 
   //SHTA
   #elif defined(SHTA)
     String data = ("{");
     data += getStringToPost(ta,rha);
-    #ifdef SDP610
-      data += String(",\"dpress\":" + String(dp));
-    #endif //SDP610
     data += String(",\"addr\":\"A\"");
-    #ifdef LOCATION
-      data += String(",\"loc\":\"");
-      data += LOCATION;
-      data += String("\"");
-    #endif //LOCATION
-    data += String("}");
 
   //SHTB
   #elif defined(SHTB)
     String data = ("{");
     data += getStringToPost(tb,rhb);
-    #ifdef SDP610
-      data += String(",\"dpress\":" + String(dp));
-    #endif //SDP610
     data += String(",\"addr\":\"B\"");
-    #ifdef LOCATION
-      data += String(",\"loc\":\"");
-      data += LOCATION;
-      data += String("\"");
-    #endif //LOCATION
-    data += String("}");
   
   #endif //SHTA and/or SHTB definition
+
+  //other sensors
+  #ifdef SDP610
+    data += String(",\"dpress\":" + String(dp));
+  #endif //SDP610
+  #ifdef ADC
+    data += String(",\"adc\":" + String(adc));
+  #endif //ADC
+  #ifdef NTC
+    data += String(",\"ntc\":" + String(tntc));
+  #endif //NTC
+  #ifdef LOCATION
+    data += String(",\"loc\":\"");
+    data += LOCATION;
+    data += String("\"");
+  #endif //LOCATION
+  data += String("}");
 
   //convert message string to char array
   int length = data.length();
@@ -495,7 +556,7 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
     Serial.println(msgBuffer);
     Serial.print("message length: ");
     Serial.print(length);
-    Serial.println(" <- make sure this is shorter than 256 characters")
+    Serial.println(" <- make sure this is shorter than 256 characters");
   #endif
 
   //create topic string
