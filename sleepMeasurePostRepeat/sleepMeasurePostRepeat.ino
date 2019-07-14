@@ -409,20 +409,20 @@ String getStringToPost(float t, float rh){
       String data = String("");
 
       //temperature
-      data += String("\"temperature\":" + String(t));
+      data += String("\"temp\":" + String(t));
       
       //relative humidity
-      data += String(",\"relativehumidity\":" + String(rh));
+      data += String(",\"rh\":" + String(rh));
       
       //dew point
       if ( ! isnan(getDewPoint(t,rh))){
-        data += String(",\"dewpoint\":" + String(getDewPoint(t,rh)));
-        if (t > getDewPoint(t,rh)) data += String(",\"dewpointstatus\":1");
-        else data += String(",\"dewpointstatus\":0");
+        data += String(",\"dewp\":" + String(getDewPoint(t,rh)));
+        if (t > getDewPoint(t,rh)) data += String(",\"dewpstat\":1");
+        else data += String(",\"dewpstat\":0");
       }
       else {
-        data += String(",\"dewpoint\":\"NaN\"");
-        data += String(",\"dewpointstatus\":\"NaN\"");
+        data += String(",\"dewp\":\"NaN\"");
+        data += String(",\"dewpstat\":\"NaN\"");
       }
       
       return data;
@@ -443,12 +443,12 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
     String data = String("");
     data += String("{[{");
     data += getStringToPost(ta,rha);
-    data += String(",\"address\":\"A\"}, {");
+    data += String(",\"addr\":\"A\"}, {");
     data += getStringToPost(tb,rhb);
-    data += String(",\"address\":\"B\"}]");
-    data += String(",\"temperaturedifference\":" + String(dt));
+    data += String(",\"addr\":\"B\"}]");
+    data += String(",\"dtemp\":" + String(dt));
     #ifdef SDP610
-      data += String(",\"differentialpressure\":" + String(dp));
+      data += String(",\"dpress\":" + String(dp));
     #endif //SDP610
     data += String("}");
 
@@ -457,11 +457,11 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
     String data = ("{");
     data += getStringToPost(ta,rha);
     #ifdef SDP610
-      data += String(",\"differentialpressure\":" + String(dp));
+      data += String(",\"dpress\":" + String(dp));
     #endif //SDP610
-    data += String(",\"address\":\"A\"");
+    data += String(",\"addr\":\"A\"");
     #ifdef LOCATION
-      data += String(",\"location\":\"");
+      data += String(",\"loc\":\"");
       data += LOCATION;
       data += String("\"");
     #endif //LOCATION
@@ -472,11 +472,11 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
     String data = ("{");
     data += getStringToPost(tb,rhb);
     #ifdef SDP610
-      data += String(",\"differentialpressure\":" + String(dp));
+      data += String(",\"dpress\":" + String(dp));
     #endif //SDP610
-    data += String(",\"address\":\"B\"");
+    data += String(",\"addr\":\"B\"");
     #ifdef LOCATION
-      data += String(",\"location\":\"");
+      data += String(",\"loc\":\"");
       data += LOCATION;
       data += String("\"");
     #endif //LOCATION
@@ -493,6 +493,9 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt){
   #ifdef VERBOSE
     Serial.print("message: ");
     Serial.println(msgBuffer);
+    Serial.print("message length: ");
+    Serial.print(length);
+    Serial.println(" <- make sure this is shorter than 256 characters")
   #endif
 
   //create topic string
