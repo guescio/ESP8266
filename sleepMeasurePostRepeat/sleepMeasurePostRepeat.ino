@@ -1,7 +1,7 @@
 /* 
-  This sketch reads the ambient temperature, humidity and differential pressure, prints them to serial output, posts them online and then goes to sleep.
+  This sketch reads the ambient temperature, humidity, differential pressure and particle count, prints them to serial output, posts them online and then goes to sleep.
   The values measured are posted through MQTT.
-  Temperature and humidity can be read from two different sensors.
+  Temperature and humidity can be read from SHT35 and SHT85 sensors.
   Don't forget to connect pin 16 with the reset pin.
   Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in the definitions section below.
   To enable/disable a sensor, uncomment/comment its name in the definitions section below.
@@ -12,23 +12,36 @@
 //definitions
 #define SHTA //0x44 address //SHT35A or SHT85
 #define SHTB //0x45 address //SHT35B
-#define SDP610
-#define ADC//NOTE: set also the voltage divider resistor value 
+#define SPS30
+//#define SDP610
+//#define ADC//NOTE: set also the voltage divider resistor value 
 #define ADCRDIV (84.5e3)//ADC voltage resistor value [Ohm]
-#define NTC//NOTE: set also the voltage divider resistor value and NTC R0, T0 and B values
+//#define NTC//NOTE: set also the voltage divider resistor value and NTC R0, T0 and B values
 #define NTCR0 (1e4)//NTC R0 [Ohm]
 #define NTCT0 (298.15)//NTC T0 [K]
 #define NTCB (3435)//NTC B
-#define SLEEPTIME (30)//s
-#define PRINTSERIAL //print measurements to serial output
+#define SLEEPTIME (60)//s
+//#define PRINTSERIAL //print measurements to serial output
 #define POST //connect and post measurements online
-//#define QUIET //connect to broker but do not post
-#define VERBOSE //print connection status and posting details
+//#define QUIET //connect to broker but ldo not post
+//#define VERBOSE //print connection status and posting details
+//#define MQTTSERVER ("127.0.0.1")
+//#define MQTTUSER ("user")
+//#define MQTTPASSWORD ("password")
+//#define MQTTTOPIC ("topic") //MQTT topic
+//#define INSTITUTE ("institute") //institute of the measurement device //NOTE this is used also for the MQTT topic
+//#define ROOM("room") //room of the measurement device
 //#define LOCATION ("location") //location of the measurement device
+//#define NAME("name") //name of the measurement device
 
 //******************************************
+//libraries
 #if defined(SHTA) || defined(SHTB)
   #include "Adafruit_SHT31.h"
+#endif
+
+#ifdef SPS30
+  #include "sps30.h"
 #endif
 
 #ifdef SDP610
@@ -45,6 +58,7 @@
 #include <limits>
 
 //******************************************
+//initilization
 //SHT A
 #ifdef SHTA
   #define SHTAADDR (0x44)
@@ -57,34 +71,29 @@
   Adafruit_SHT31 sht31b = Adafruit_SHT31();
 #endif
 
+//SPS30 does not need initializaiton
 //SDP610 does not need initialization
 
-#ifdef NTC
-  //voltage divider resistor
-  const float r = 10e3;//Ohm
-#endif
-
 //******************************************
-//
-
+//wifi and MQTT setup
 #ifdef POST
+  //wifi
   const char* ssid     = WIFISSID;
-  const char* password = WIFIPASSWORD;
-#endif
-
-//******************************************
-//MQTT and wi-fi setup
-#ifdef POST
+  const char* password = WIFIPASSWORD;  
+  //initialize wifi client library
+  WiFiClient WiFiclient;
+  
+  //MQTT
   char MQTTServer[] = MQTTSERVER;
   long MQTTPort = 1883;
   char MQTTUsername[] = MQTTUSER;
   char MQTTPassword[] = MQTTPASSWORD;
-  //NOTE need a random client ID for posting
+  //NOTE: need a random client ID for posting
   static const char alphanum[] ="0123456789"
                                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                 "abcdefghijklmnopqrstuvwxyz";
-  WiFiClient WiFiclient;//initialize the wifi client library
-  PubSubClient MQTTClient(WiFiclient);//initialize PuBSubClient library
+  //initialize PuBSubClient library
+  PubSubClient MQTTClient(WiFiclient);
 #endif //POST
 
 //******************************************
@@ -92,7 +101,10 @@
 void setup(){
   Serial.begin(115200);
   while(!Serial){}
-  Serial.println();
+
+  #if defined(PRINTSERIAL) || defined(VERBOSE)
+    Serial.println("\nsleep, measure, post, repeat");
+  #endif
 
   //initialize SHTs
   #ifdef SHTA
@@ -102,6 +114,57 @@ void setup(){
   #ifdef SHTB
     sht31b.begin(SHTBADDR);
   #endif
+
+  //initialize SPS30
+  #ifdef SPS30
+    s16 ret;
+    u8 auto_clean_days = 4;
+    u32 auto_clean;
+    bool sps30available = false;
+    
+    //probe SPS30
+    for (int ii=0; ii<10; ii++){
+      if (sps30_probe() != 0) {
+        #ifdef VERBOSE
+          Serial.println("SPS30 sensor probing failed");
+        #endif //VERBOSE
+      } else {
+        sps30available = true;
+        break;
+      }
+      //wait 500 ms between trials
+      delay(500);//ms
+    }
+
+    //set auto-cleaning
+    if (sps30available) {
+      ret = sps30_set_fan_auto_cleaning_interval_days(auto_clean_days);
+      if (ret) {
+        #ifdef VERBOSE
+          Serial.print("SPS30 error setting the auto-clean interval: ");
+          Serial.println(ret);
+        #endif //VERBOSE
+      }
+    }
+
+    //start measurement
+    if (sps30available) {
+      ret = sps30_start_measurement();
+      if (ret < 0) {
+        #ifdef VERBOSE
+          Serial.print("SPS30 error starting measurement\n");
+        #endif //verbose
+        sps30available = false;
+      }
+    }
+
+    #ifdef defined(SPS30_LIMITED_I2C_BUFFER_SIZE) && defined(VERBOSE)
+      Serial.println("The hardware has a limitation that only");
+      Serial.println("  allows reading the mass concentrations.");
+      Serial.println("  For more information, please check:");
+      Serial.println("  https://github.com/Sensirion/arduino-sps#esp8266-partial-legacy-support\n");
+    #endif //SPS30_LIMITED_I2C_BUFFER_SIZE && VERBOSE
+  #endif //SPS30
 
   //initialize SDP610
   #ifdef SDP610
@@ -120,6 +183,7 @@ void setup(){
   float dt = std::numeric_limits<double>::quiet_NaN();//temperature difference
   int adc = std::numeric_limits<double>::quiet_NaN();//ADC
   float tntc = std::numeric_limits<double>::quiet_NaN();//temperature NTC
+  float nc0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particle concentration
   
   //read values before the ESP8266 heats up
   #ifdef SHTA
@@ -131,6 +195,54 @@ void setup(){
     tb = sht31b.readTemperature();
     rhb = sht31b.readHumidity();
   #endif //SHTB
+
+  #ifdef SPS30
+  if (sps30available) {
+    
+    struct sps30_measurement m;
+    char serial[SPS_MAX_SERIAL_LEN];
+    u16 data_ready;
+      
+      //try to read data from SPS30
+      for (int ii=0; ii<10; ii++){
+        ret = sps30_read_data_ready(&data_ready);
+        if (ret < 0) {
+          #ifdef VERBOSE
+            Serial.print("SPS30 error reading data-ready flag: ");
+            Serial.println(ret);
+          #endif //VERBOSE
+        } else if (!data_ready) {
+          #ifdef VERBOSE
+            Serial.println("SPS30 data not ready, no new measurement available");
+          #endif //VERBOSE
+        } else {
+          break;
+        }
+        //wait 100 ms between trials
+        delay(100);//ms
+      };
+
+      //read SPS30 measurement
+      ret = sps30_read_measurement(&m);
+      if (ret < 0) {
+        #ifdef VERBOSE
+          Serial.println("SPS30 error reading measurement");
+        #endif //VERBOSE
+      } else {
+        nc0p5 = (m.nc_10p0 - m.nc_0p5)*pow(30.48, 3);//particles/ft^3
+        //Serial.print("particle concentration (>0.5 um and <10 um): ");
+        //Serial.print(nc0p5/pow(30.48, 3));
+        //Serial.println(" cm^-3");
+        //Serial.print("particle concentration (>0.5 um and <10 um): ");
+        //Serial.print(nc0p5);
+        //Serial.println(" ft^-3");
+        //Serial.print("typical partical size: ");
+        //Serial.print(m.typical_particle_size);
+        //Serial.println(" um");
+      }
+      
+    }//sps30available
+  #endif //SPS30
   
   #ifdef SDP610
     dp = SDP6x.GetPressureDiff();
@@ -150,7 +262,7 @@ void setup(){
 
   //print serial
   #ifdef PRINTSERIAL
-    printSerial(ta, rha, tb, rhb, dp, dt, adc, tntc);
+    printSerial(ta, rha, tb, rhb, dp, dt, adc, tntc, nc0p5);
   #endif //PRINTSERIAL
 
   //connect to wifi and post data
@@ -163,7 +275,7 @@ void setup(){
   
     //post data
     if (WiFi.status() == WL_CONNECTED){
-      postData(ta, rha, tb, rhb, dp, dt, adc, tntc);
+      postData(ta, rha, tb, rhb, dp, dt, adc, tntc, nc0p5);
     }
   
     //disconnect before leaving
@@ -190,44 +302,50 @@ float getDewPoint(float t, float rh){
 
 //******************************************
 //get ADC value
-float getADC(){
-  int value = 0;
-  int nreadings = 10;
-  for (int ii=0; ii<nreadings; ii++){
-    value += analogRead(A0);
-    delay(10);//ms
+#if defined(ADC) || defined(NTC)
+  float getADC(){
+    int value = 0;
+    int nreadings = 10;
+    for (int ii=0; ii<nreadings; ii++){
+      value += analogRead(A0);
+      delay(10);//ms
+    }
+    if (! isnan(value)){
+      return value/nreadings;
+    }
+    else return std::numeric_limits<double>::quiet_NaN();
   }
-  if (! isnan(value)){
-    return value/nreadings;
-  }
-  else return std::numeric_limits<double>::quiet_NaN();
-}
+#endif //ADC || NTC
 
 //******************************************
 //get NTC temperature
-float getTNTC(int adc){
-  if (isnan(adc)){
-    adc = getADC();
+#if defined(ADC) || defined(NTC)
+  float getTNTC(int adc){
+    if (isnan(adc)){
+      adc = getADC();
+    }
+    if (! isnan(adc)){
+      float rntc = ADCRDIV/(1023/adc-1);//Ohm
+      return (1./((1./NTCT0) + (1./NTCB)*log((rntc/NTCR0))) -273.15);//C
+    }
+    else return std::numeric_limits<double>::quiet_NaN();
   }
-  if (! isnan(adc)){
-    float rntc = ADCRDIV/(1023/adc-1);//Ohm
-    return (1./((1./NTCT0) + (1./NTCB)*log((rntc/NTCR0))) -273.15);//C
-  }
-  else return std::numeric_limits<double>::quiet_NaN();
-}
+#endif //ADC || NTC
 
 //******************************************
 //print measurements to serial output
-void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc){
+void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float nc0p5){
 
   Serial.println();
-  Serial.println("sleep, measure, post, repeat");
-  Serial.println();
+
   #ifdef SHTA
     Serial.print("t_a[C] RH_a[%] DP_a[C]");
   #endif
   #ifdef SHTB
     Serial.print(" t_b[C] RH_b[%] DP_b[C]");
+  #endif
+  #ifdef SPS30
+    Serial.print(" NC[ft^-3]");
   #endif
   #ifdef SDP610
     Serial.print(" dP[Pa]");
@@ -261,6 +379,11 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, i
     Serial.print(getDewPoint(tb,rhb));//dew point
     Serial.print("   ");
   #endif
+    
+  #ifdef SPS30
+    Serial.print(nc0p5);//particle concentration (>0.5 um)
+    Serial.print(" ");
+  #endif
 
   #ifdef SDP610
     Serial.print(dp);//differential pressure
@@ -269,6 +392,7 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, i
 
   #if defined(SHTA) && defined(SHTB)
     Serial.print(dt);//temperature difference
+    Serial.print("  ");
   #endif
 
   #ifdef ADC
@@ -294,10 +418,12 @@ void wifiConnect(){
   WiFi.disconnect();
   WiFi.begin(ssid, password);
 
-  Serial.println();
-  Serial.print("wifi connecting to ");
-  Serial.println(ssid);
-
+  #ifdef VERBOSE
+    Serial.println();
+    Serial.print("wifi connecting to ");
+    Serial.println(ssid);
+  #endif //VERBOSE
+  
   //connect
   for (int ii=0;ii<20;ii++){
 
@@ -365,7 +491,7 @@ void wifiConnect(){
 //******************************************
 //post data online using MQTT protocol
 #ifdef POST
-void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc){
+void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float nc0p5){
   //connect to MQTT broker
   MQTTConnect();
   
@@ -374,7 +500,7 @@ void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int 
     MQTTClient.loop();
     
     //publish data
-    MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc);
+    MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc, nc0p5);
     
     //disconnect
     MQTTClient.disconnect();
@@ -470,32 +596,58 @@ void MQTTConnect(){
 
 //******************************************
 //string to post with T, RH and dew point
-String getStringToPost(float t, float rh){
-      String data = String("");
+String getTRHString(float t, float rh){
+  String data = String("");
 
-      //temperature
-      data += String("\"temp\":" + String(t));
-      
-      //relative humidity
-      data += String(",\"rh\":" + String(rh));
-      
-      //dew point
-      if ( ! isnan(getDewPoint(t,rh))){
-        data += String(",\"dewp\":" + String(getDewPoint(t,rh)));
-        if (t > getDewPoint(t,rh)) data += String(",\"dewpstat\":1");
-        else data += String(",\"dewpstat\":0");
-      }
-      else {
-        data += String(",\"dewp\":\"NaN\"");
-        data += String(",\"dewpstat\":\"NaN\"");
-      }
-      
-      return data;
+  //temperature
+  data += String("\"temp\":" + String(t));
+
+  //relative humidity
+  data += String(",\"rh\":" + String(rh));
+
+  //dew point
+  if ( ! isnan(getDewPoint(t,rh))){
+    data += String(",\"dewp\":" + String(getDewPoint(t,rh)));
+    if (t > getDewPoint(t,rh)) data += String(",\"dewpstat\":1");
+      else data += String(",\"dewpstat\":0");
+  } else {
+     data += String(",\"dewp\":\"NaN\"");
+     data += String(",\"dewpstat\":\"NaN\"");
+  }
+    
+  return data;
+}
+
+//******************************************
+//metadata string with institute, room, location and name
+String getMetadataString(){
+  String data = String("");
+  #ifdef INSTITUTE
+    data += String(",\"inst\":\"");
+    data += INSTITUTE;
+    data += String("\"");
+  #endif //INSTITUTE
+  #ifdef ROOM
+    data += String(",\"room\":\"");
+    data += ROOM;
+    data += String("\"");
+  #endif //ROOM
+  #ifdef LOCATION
+    data += String(",\"loc\":\"");
+    data += LOCATION;
+    data += String("\"");
+  #endif //LOCATION
+  #ifdef NAME
+    data += String(",\"name\":\"");
+    data += NAME;
+    data += String("\"");
+  #endif //NAME
+  return data;
 }
 
 //******************************************
 #ifdef POST
-void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc){
+void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float nc0p5){
 
   //print
   #ifdef VERBOSE
@@ -503,48 +655,72 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, i
   #endif
 
   //create data string to send to MQTT broker
-
-  //SHTA and SHTB
-  #if defined(SHTA) and defined(SHTB)
-    String data = String("");
-    data += String("{[{");
-    data += getStringToPost(ta,rha);
-    data += String(",\"addr\":\"A\"}, {");
-    data += getStringToPost(tb,rhb);
-    data += String(",\"addr\":\"B\"}]");
-    data += String(",\"dtemp\":" + String(dt));
+  //NOTE the string is a JSON array
+  String data = String("[");
 
   //SHTA
-  #elif defined(SHTA)
-    String data = ("{");
-    data += getStringToPost(ta,rha);
+  #ifdef SHTA
+    data += String("{");
+    data += getTRHString(ta,rha);
     data += String(",\"addr\":\"A\"");
-
+    data += getMetadataString();
+    data += String("},");
+  #endif //SHTA
+    
   //SHTB
-  #elif defined(SHTB)
-    String data = ("{");
-    data += getStringToPost(tb,rhb);
+  #ifdef SHTB
+    data += String("{");
+    data += getTRHString(tb,rhb);
     data += String(",\"addr\":\"B\"");
-  
-  #endif //SHTA and/or SHTB definition
+    data += getMetadataString();
+    data += String("},");
+  #endif //SHTB
 
   //other sensors
-  #ifdef SDP610
-    data += String(",\"dpress\":" + String(dp));
-  #endif //SDP610
-  #ifdef ADC
-    data += String(",\"adc\":" + String(adc));
-  #endif //ADC
-  #ifdef NTC
-    data += String(",\"ntc\":" + String(tntc));
-  #endif //NTC
-  #ifdef LOCATION
-    data += String(",\"loc\":\"");
-    data += LOCATION;
-    data += String("\"");
-  #endif //LOCATION
-  data += String("}");
+  #if defined(SPS30) or defined(SDP610) or defined(ADC) or defined(NTC)
+    data += String("{");    
+    #ifdef SPS30
+      if ( ! isnan(nc0p5))
+        data += String("\"nc0p5\":" + String(nc0p5) + ",");
+      else
+        data += String("\"nc0p5\":\"NaN\",");
+    #endif //SPS30
+    #ifdef SDP610
+      if ( ! isnan(dp))
+        data += String("\"dpress\":" + String(dp) + ",");
+      else
+        data += String("\"dpress\":\"NaN\",");
+    #endif //SDP610
+    #ifdef ADC
+      if ( ! isnan(adc))
+        data += String("\"adc\":" + String(adc) + ",");
+      else
+        data += String("\"adc\":\"NaN\",");
+    #endif //ADC
+    #ifdef NTC
+      if ( ! isnan(tntc))
+        data += String("\"tntc\":" + String(tntc) + ",");
+      else
+        data += String("\"tntc\":\"NaN\",");
+    #endif //NTC
 
+    //remove trailing ","
+    if (data.endsWith(",")) {
+      data.remove(data.length()-1);
+    }
+
+    data += getMetadataString();
+    data += String("}");
+    #endif //SPS30 or SDP610 or ADC or NTC
+
+  //remove trailing ","
+  if (data.endsWith(",")) {
+    data.remove(data.length()-1);
+  }
+
+  //end of array
+  data += String("]");
+  
   //convert message string to char array
   int length = data.length();
   char msgBuffer[length];
@@ -555,20 +731,19 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, i
     Serial.print("message: ");
     Serial.println(msgBuffer);
     Serial.print("message length: ");
-    Serial.print(length);
-    Serial.println(" <- make sure this is shorter than 256 characters");
+    Serial.println(length);
   #endif
 
   //create topic string
   String topicString = MQTTTOPIC;
   
-  //append location to topic
-  #ifdef LOCATION
+  //append institute to topic
+  #ifdef INSTITUTE
     topicString += "/";
-    topicString += LOCATION;
-  #endif //LOCATION
+    topicString += INSTITUTE;
+  #endif //INSTITUTE
   
-  length=topicString.length();
+  length = topicString.length();
   char topicBuffer[length];
   topicString.toCharArray(topicBuffer,length+1);
   #ifdef VERBOSE
@@ -581,14 +756,14 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, i
     if (MQTTClient.publish(topicBuffer, msgBuffer)) {
       #ifdef VERBOSE
         Serial.println("success");
-      #endif
+      #endif //VERBOSE
     } else {
       #ifdef VERBOSE
         Serial.println("fail");
-      #endif
+      #endif //VERBOSE
     }
   Serial.println();
-  #endif
+  #endif //QUIET
 }
 #endif //POST
 
