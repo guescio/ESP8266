@@ -173,17 +173,17 @@ void setup(){
   #endif
 
   //set initial values
-  float ta = std::numeric_limits<double>::quiet_NaN();//temeprature A
-  float rha = std::numeric_limits<double>::quiet_NaN();//relative humidity A
-  float dpa = std::numeric_limits<double>::quiet_NaN();//dew point A
-  float tb = std::numeric_limits<double>::quiet_NaN();//temeprature B
-  float rhb = std::numeric_limits<double>::quiet_NaN();//relative humidity B
-  float dpb = std::numeric_limits<double>::quiet_NaN();//dew point B
-  float dp = std::numeric_limits<double>::quiet_NaN();//differential pressure
-  float dt = std::numeric_limits<double>::quiet_NaN();//temperature difference
-  int adc = std::numeric_limits<double>::quiet_NaN();//ADC
-  float tntc = std::numeric_limits<double>::quiet_NaN();//temperature NTC
-  float nc0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particle concentration
+  float ta = std::numeric_limits<double>::quiet_NaN();//temperature A [C]
+  float rha = std::numeric_limits<double>::quiet_NaN();//relative humidity A [%]
+  float dpa = std::numeric_limits<double>::quiet_NaN();//dew point A [C]
+  float tb = std::numeric_limits<double>::quiet_NaN();//temperature B [C]
+  float rhb = std::numeric_limits<double>::quiet_NaN();//relative humidity B [%]
+  float dpb = std::numeric_limits<double>::quiet_NaN();//dew point B [C]
+  float dp = std::numeric_limits<double>::quiet_NaN();//differential pressure [Pa]
+  float dt = std::numeric_limits<double>::quiet_NaN();//temperature difference [C]
+  int adc = std::numeric_limits<double>::quiet_NaN();//ADC []
+  float tntc = std::numeric_limits<double>::quiet_NaN();//temperature NTC [C]
+  float dust0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particles concentration [ft^-3]
   
   //read values before the ESP8266 heats up
   #ifdef SHTA
@@ -229,12 +229,12 @@ void setup(){
           Serial.println("SPS30 error reading measurement");
         #endif //VERBOSE
       } else {
-        nc0p5 = (m.nc_10p0 - m.nc_0p5)*pow(30.48, 3);//particles/ft^3
+        dust0p5 = (m.nc_10p0 - m.nc_0p5)*pow(30.48, 3);//particles/ft^3
         //Serial.print("particle concentration (>0.5 um and <10 um): ");
-        //Serial.print(nc0p5/pow(30.48, 3));
+        //Serial.print(dust0p5/pow(30.48, 3));
         //Serial.println(" cm^-3");
         //Serial.print("particle concentration (>0.5 um and <10 um): ");
-        //Serial.print(nc0p5);
+        //Serial.print(dust0p5);
         //Serial.println(" ft^-3");
         //Serial.print("typical partical size: ");
         //Serial.print(m.typical_particle_size);
@@ -262,7 +262,7 @@ void setup(){
 
   //print serial
   #ifdef PRINTSERIAL
-    printSerial(ta, rha, tb, rhb, dp, dt, adc, tntc, nc0p5);
+    printSerial(ta, rha, tb, rhb, dp, dt, adc, tntc, dust0p5);
   #endif //PRINTSERIAL
 
   //connect to wifi and post data
@@ -275,7 +275,7 @@ void setup(){
   
     //post data
     if (WiFi.status() == WL_CONNECTED){
-      postData(ta, rha, tb, rhb, dp, dt, adc, tntc, nc0p5);
+      postData(ta, rha, tb, rhb, dp, dt, adc, tntc, dust0p5);
     }
   
     //disconnect before leaving
@@ -334,7 +334,7 @@ float getDewPoint(float t, float rh){
 
 //******************************************
 //print measurements to serial output
-void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float nc0p5){
+void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dust0p5){
 
   Serial.println();
 
@@ -381,7 +381,7 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, i
   #endif
     
   #ifdef SPS30
-    Serial.print(nc0p5);//particle concentration (>0.5 um)
+    Serial.print(dust0p5);//particle concentration (>0.5 um)
     Serial.print(" ");
   #endif
 
@@ -491,7 +491,7 @@ void wifiConnect(){
 //******************************************
 //post data online using MQTT protocol
 #ifdef POST
-void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float nc0p5){
+void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dust0p5){
   //connect to MQTT broker
   MQTTConnect();
   
@@ -500,7 +500,7 @@ void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int 
     MQTTClient.loop();
     
     //publish data
-    MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc, nc0p5);
+    MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc, dust0p5);
     
     //disconnect
     MQTTClient.disconnect();
@@ -607,12 +607,12 @@ String getTRHString(float t, float rh){
 
   //dew point
   if ( ! isnan(getDewPoint(t,rh))){
-    data += String(",\"dewp\":" + String(getDewPoint(t,rh)));
+    data += String(",\"dewpoint\":" + String(getDewPoint(t,rh)));
     if (t > getDewPoint(t,rh)) data += String(",\"dewpstat\":1");
-      else data += String(",\"dewpstat\":0");
+      else data += String(",\"dewpointstatus\":0");
   } else {
-     data += String(",\"dewp\":\"NaN\"");
-     data += String(",\"dewpstat\":\"NaN\"");
+     data += String(",\"dewpoint\":\"NaN\"");
+     data += String(",\"dewpointstatus\":\"NaN\"");
   }
     
   return data;
@@ -623,7 +623,7 @@ String getTRHString(float t, float rh){
 String getMetadataString(){
   String data = String("");
   #ifdef INSTITUTE
-    data += String(",\"inst\":\"");
+    data += String(",\"institute\":\"");
     data += INSTITUTE;
     data += String("\"");
   #endif //INSTITUTE
@@ -633,7 +633,7 @@ String getMetadataString(){
     data += String("\"");
   #endif //ROOM
   #ifdef LOCATION
-    data += String(",\"loc\":\"");
+    data += String(",\"location\":\"");
     data += LOCATION;
     data += String("\"");
   #endif //LOCATION
@@ -647,7 +647,7 @@ String getMetadataString(){
 
 //******************************************
 #ifdef POST
-void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float nc0p5){
+void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dust0p5){
 
   //print
   #ifdef VERBOSE
@@ -662,7 +662,7 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, i
   #ifdef SHTA
     data += String("{");
     data += getTRHString(ta,rha);
-    data += String(",\"addr\":\"A\"");
+    data += String(",\"ID\":\"SHTA\"");
     data += getMetadataString();
     data += String("},");
   #endif //SHTA
@@ -671,7 +671,7 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, i
   #ifdef SHTB
     data += String("{");
     data += getTRHString(tb,rhb);
-    data += String(",\"addr\":\"B\"");
+    data += String(",\"ID\":\"SHTB\"");
     data += getMetadataString();
     data += String("},");
   #endif //SHTB
@@ -680,16 +680,16 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, i
   #if defined(SPS30) or defined(SDP610) or defined(ADC) or defined(NTC)
     data += String("{");    
     #ifdef SPS30
-      if ( ! isnan(nc0p5))
-        data += String("\"nc0p5\":" + String(nc0p5) + ",");
+      if ( ! isnan(dust0p5))
+        data += String("\"dust0p5\":" + String(dust0p5) + ",");
       else
-        data += String("\"nc0p5\":\"NaN\",");
+        data += String("\"dust0p5\":\"NaN\",");
     #endif //SPS30
     #ifdef SDP610
       if ( ! isnan(dp))
-        data += String("\"dpress\":" + String(dp) + ",");
+        data += String("\"differentialpressure\":" + String(dp) + ",");
       else
-        data += String("\"dpress\":\"NaN\",");
+        data += String("\"differentialpressure\":\"NaN\",");
     #endif //SDP610
     #ifdef ADC
       if ( ! isnan(adc))
