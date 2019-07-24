@@ -2,7 +2,7 @@
   This sketch reads the ambient temperature, humidity, differential pressure and particle count, prints them to serial output, posts them online and then goes to sleep.
   The values measured are posted through MQTT.
   Temperature and humidity can be read from SHT35 and SHT85 sensors.
-  Don't forget to connect pin 16 with the reset pin.
+  Don't forget to connect pin 16 to the reset pin.
   Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in the definitions section below.
   To enable/disable a sensor, uncomment/comment its name in the definitions section below.
   Author: Guescio.
