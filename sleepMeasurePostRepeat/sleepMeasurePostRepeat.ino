@@ -12,7 +12,7 @@
 //definitions
 #define SHTA //0x44 address //SHT35A or SHT85
 #define SHTB //0x45 address //SHT35B
-#define SPS30
+//#define SPS30
 //#define SDP610
 //#define ADC//NOTE: set also the voltage divider resistor value
 #define ADCRDIV (84.5e3)//ADC voltage resistor value [Ohm]
@@ -123,9 +123,10 @@ void setup() {
 #endif
 
   s16 ret;
-  u8 auto_clean_days = 4;
+  u8 auto_clean_days = 2;
   u32 auto_clean;
   bool sps30available = false;
+  char serial[SPS_MAX_SERIAL_LEN];
 
   //probe SPS30
   for (int ii = 0; ii < 10; ii++) {
@@ -141,6 +142,19 @@ void setup() {
     delay(500);//ms
   }
 
+  //SPS30 serial number
+  #ifdef VERBOSE
+  if (sps30available) {
+    ret = sps30_get_serial(serial);
+    if (ret) {
+      Serial.println("could not retrieve SPS30 serial number");
+    } else {
+      Serial.print("SPS30 serial number: ");
+      Serial.println(serial);
+    }
+  }
+  #endif //VERBOSE
+  
   //set auto-cleaning
   if (sps30available) {
     ret = sps30_set_fan_auto_cleaning_interval_days(auto_clean_days);
@@ -188,12 +202,13 @@ void setup() {
   float dt = std::numeric_limits<double>::quiet_NaN();//temperature difference [C]
   int adc = std::numeric_limits<double>::quiet_NaN();//ADC []
   float tntc = std::numeric_limits<double>::quiet_NaN();//temperature NTC [C]
-  float dust0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particles concentration [ft^-3]
-  float pm0p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <0.5 um particles concentration [ft^-3]
-  float pm1p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <1.0 um particles concentration [ft^-3]
-  float pm2p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <2.5 um particles concentration [ft^-3]
-  float pm4p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <4.0 um particles concentration [ft^-3]
-  float pm10p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <10.0 um particles concentration [ft^-3]
+  float dust0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particles concentration [cm^-3]
+  float nc0p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <0.5 um particles concentration [cm^-3]
+  float nc1p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <1.0 um particles concentration [cm^-3]
+  float nc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <2.5 um particles concentration [cm^-3]
+  float nc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <4.0 um particles concentration [cm^-3]
+  float nc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <10.0 um particles concentration [cm^-3]
+  float mc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <2.5 um particles mass concentration [µg/m^-3]
 
   //read values before the ESP8266 heats up
 #ifdef SHTA
@@ -210,7 +225,6 @@ void setup() {
   if (sps30available) {
 
     struct sps30_measurement m;
-    char serial[SPS_MAX_SERIAL_LEN];
     u16 data_ready;
 
     //try to read data from SPS30
@@ -239,18 +253,19 @@ void setup() {
       Serial.println("SPS30 error reading measurement");
 #endif //VERBOSE
     } else {
-      dust0p5 = (m.nc_10p0 - m.nc_0p5) * pow(30.48, 3); //particles/ft^3
-      pm0p5 = m.nc_0p5 * pow(30.48, 3); //particles/ft^3
-      pm1p0 = m.nc_1p0 * pow(30.48, 3); //particles/ft^3
-      pm2p5 = m.nc_2p5 * pow(30.48, 3); //particles/ft^3
-      pm4p0 = m.nc_4p0 * pow(30.48, 3); //particles/ft^3
-      pm10p0 = m.nc_10p0 * pow(30.48, 3); //particles/ft^3
+      dust0p5 = (m.nc_10p0 - m.nc_0p5); //particles/cm^3
+      nc0p5 = m.nc_0p5; //particles/cm^3
+      nc1p0 = m.nc_1p0; //particles/cm^3
+      nc2p5 = m.nc_2p5; //particles/cm^3
+      nc4p0 = m.nc_4p0; //particles/cm^3
+      nc10p0 = m.nc_10p0; //particles/cm^3
+      mc2p5 = m.mc_2p5; //µg/m^3
       //Serial.print("particle concentration (>0.5 um and <10 um): ");
       //Serial.print(dust0p5/pow(30.48, 3));
       //Serial.println(" cm^-3");
       //Serial.print("particle concentration (>0.5 um and <10 um): ");
       //Serial.print(dust0p5);
-      //Serial.println(" ft^-3");
+      //Serial.println(" cm^-3");
       //Serial.print("typical partical size: ");
       //Serial.print(m.typical_pisoarticle_size);
       //Serial.println(" um");
@@ -277,7 +292,7 @@ void setup() {
 
   //print serial
 #ifdef PRINTSERIAL
-  printSerial(ta, rha, tb, rhb, dp, dt, adc, tntc, dust0p5, pm0p5, pm1p0, pm2p5, pm4p0, pm10p0);
+  printSerial(ta, rha, tb, rhb, dp, dt, adc, tntc, dust0p5, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0, mc2p5);
 #endif //PRINTSERIAL
 
   //connect to wifi and post data
@@ -290,7 +305,7 @@ void setup() {
 
   //post data
   if (WiFi.status() == WL_CONNECTED) {
-    postData(ta, rha, tb, rhb, dp, dt, adc, tntc, dust0p5, pm0p5, pm1p0, pm2p5, pm4p0, pm10p0);
+    postData(ta, rha, tb, rhb, dp, dt, adc, tntc, dust0p5, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0, mc2p5);
   }
 
   //disconnect before leaving
@@ -346,7 +361,7 @@ float getTNTC(int adc) {
 
 //******************************************
 //print measurements to serial output
-void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dust0p5, float pm0p5, float pm1p0, float pm2p5, float pm4p0, float pm10p0) {
+void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dust0p5, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0, float mc2p5) {
 
   Serial.println();
 
@@ -357,7 +372,7 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, i
   Serial.print(" t_b[C] RH_b[%] DP_b[C]");
 #endif
 #ifdef SPS30
-  Serial.print(" dust[ft^-3] PM0.5[ft^-3] PM1.0[ft^-3] PM2.5[ft^-3] PM4.0[ft^-3] PM10.0[ft^-3]");
+  Serial.print(" dust[cm^-3] NC0.5[cm^-3] NC1.0[cm^-3] NC2.5[cm^-3] NC4.0[cm^-3] NC10.0[cm^-3] MC2.5[µg/m^-3]");
 #endif
 #ifdef SDP610
   Serial.print(" dP[Pa]");
@@ -393,18 +408,20 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, i
 #endif
 
 #ifdef SPS30
-  Serial.print(dust0p5);//particle concentration (>0.5 um)
-  Serial.print("   ");
-  Serial.print(pm0p5);//particle concentration (<0.5 um)
-  Serial.print("   ");
-  Serial.print(pm1p0);//particle concentration (<1.0 um)
-  Serial.print("   ");
-  Serial.print(pm2p5);//particle concentration (<2.5 um)
-  Serial.print("   ");
-  Serial.print(pm4p0);//particle concentration (<4.0 um)
-  Serial.print("   ");
-  Serial.print(pm10p0);//particle concentration (<10.0 um)
-  Serial.print("    ");
+  Serial.print(dust0p5,3);//particle concentration (>0.5 um)
+  Serial.print("       ");
+  Serial.print(nc0p5,3);//particle concentration (<0.5 um)
+  Serial.print("        ");
+  Serial.print(nc1p0,3);//particle concentration (<1.0 um)
+  Serial.print("        ");
+  Serial.print(nc2p5,3);//particle concentration (<2.5 um)
+  Serial.print("        ");
+  Serial.print(nc4p0,3);//particle concentration (<4.0 um)
+  Serial.print("        ");
+  Serial.print(nc10p0,3);//particle concentration (<10.0 um)
+  Serial.print("         ");
+  Serial.print(mc2p5,3);//particle concentration (<2.5 um µg/m^3)
+  Serial.print("          ");
 #endif
 
 #ifdef SDP610
@@ -513,7 +530,7 @@ void wifiConnect() {
 //******************************************
 //post data online using MQTT protocol
 #ifdef POST
-void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dust0p5, float pm0p5, float pm1p0, float pm2p5, float pm4p0, float pm10p0) {
+void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dust0p5, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0, float mc2p5) {
   //connect to MQTT broker
   MQTTConnect();
 
@@ -522,7 +539,7 @@ void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int 
     MQTTClient.loop();
 
     //publish data
-    MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc, dust0p5, pm0p5, pm1p0, pm2p5, pm4p0, pm10p0);
+    MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc, dust0p5, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0, mc2p5);
 
     //disconnect
     MQTTClient.disconnect();
@@ -675,7 +692,7 @@ String getMetadataString() {
 
 //******************************************
 #ifdef POST
-void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dust0p5, float pm0p5, float pm1p0, float pm2p5, float pm4p0, float pm10p0) {
+void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dust0p5, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0, float mc2p5) {
 
   //print
 #ifdef VERBOSE
@@ -708,29 +725,33 @@ void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, i
 #ifdef SPS30
   data += String("{");
   if ( ! isnan(dust0p5))
-    data += String("\"dust0p5\":" + String(dust0p5));
+    data += String("\"dust0p5\":" + String(dust0p5,3));
   else
     data += String("\"dust0p5\":\"NaN\"");
-  if ( ! isnan(pm0p5))
-    data += String(",\"pm0p5\":" + String(pm0p5));
+  if ( ! isnan(nc0p5))
+    data += String(",\"nc0p5\":" + String(nc0p5,3));
   else
-    data += String(",\"pm0p5\":\"NaN\"");
-  if ( ! isnan(pm1p0))
-    data += String(",\"pm1p0\":" + String(pm1p0));
+    data += String(",\"nc0p5\":\"NaN\"");
+  if ( ! isnan(nc1p0))
+    data += String(",\"nc1p0\":" + String(nc1p0,3));
   else
-    data += String(",\"pm1p0\":\"NaN\"");
-  if ( ! isnan(pm2p5))
-    data += String(",\"pm2p5\":" + String(pm2p5));
+    data += String(",\"nc1p0\":\"NaN\"");
+  if ( ! isnan(nc2p5))
+    data += String(",\"nc2p5\":" + String(nc2p5,3));
   else
-    data += String(",\"pm2p5\":\"NaN\"");
-  if ( ! isnan(pm4p0))
-    data += String(",\"pm4p0\":" + String(pm4p0));
+    data += String(",\"nc2p5\":\"NaN\"");
+  if ( ! isnan(nc4p0))
+    data += String(",\"nc4p0\":" + String(nc4p0,3));
   else
-    data += String(",\"pm4p0\":\"NaN\"");
-  if ( ! isnan(pm10p0))
-    data += String(",\"pm10p0\":" + String(pm10p0));
+    data += String(",\"nc4p0\":\"NaN\"");
+  if ( ! isnan(nc10p0))
+    data += String(",\"nc10p0\":" + String(nc10p0,3));
   else
-    data += String(",\"pm10p0\":\"NaN\"");
+    data += String(",\"nc10p0\":\"NaN\"");
+  if ( ! isnan(mc2p5))
+    data += String(",\"mc2p5\":" + String(mc2p5,3));
+  else
+    data += String(",\"mc2p5\":\"NaN\"");
   data += String(",\"sensor\":\"SPS30\"");
   data += getMetadataString();
   data += String("},");
