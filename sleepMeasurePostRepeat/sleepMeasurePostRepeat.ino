@@ -22,11 +22,11 @@
 #define NTCB (3435)//NTC B
 #define ADCVREF (1.0)//ADC reference voltage [V]
 #define VDD (3.3)//voltage supply [V]
-#define SLEEPTIME (10)//s
-#define PRINTSERIAL //print measurements to serial output
+#define SLEEPTIME (5)//s
+//#define PRINTSERIAL //print measurements to serial output
 //#define POST //connect and post measurements online
-//#define QUIET //connect to broker but do not post
-//#define VERBOSE //print connection status and posting details
+#define QUIET //connect to broker but do not post
+#define VERBOSE //print connection status and posting details
 //#define MQTTSERVER ("127.0.0.1")
 //#define MQTTUSER ("user")
 //#define MQTTPASSWORD ("password")
@@ -54,10 +54,11 @@
 #ifdef POST
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-#include <guescio.h>
+//#include <guescio.h> //TEST commented out
 #endif
 
 #include <limits>
+#include <guescio.h> //TEST
 
 //******************************************
 //initilization
@@ -84,7 +85,9 @@ const char* ssid     = WIFISSID;
 const char* password = WIFIPASSWORD;
 //initialize wifi client library
 WiFiClient WiFiclient;
+#endif //POST
 
+#if defined(POST) || defined(QUIET)
 //MQTT
 char MQTTServer[] = MQTTSERVER;
 long MQTTPort = 1883;
@@ -94,6 +97,9 @@ char MQTTPassword[] = MQTTPASSWORD;
 static const char alphanum[] = "0123456789"
                                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                "abcdefghijklmnopqrstuvwxyz";
+#endif //POST || QUIET
+                               
+#ifdef POST 
 //initialize PuBSubClient library
 PubSubClient MQTTClient(WiFiclient);
 #endif //POST
@@ -318,15 +324,41 @@ void setup() {
 
   //connect to wifi
   wifiConnect();
-
-  //post data
   if (WiFi.status() == WL_CONNECTED) {
-    postData(ta, rha, tb, rhb, dp, dt, adc, tntc, dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0, dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+    
+    //connect to MQTT broker
+    MQTTConnect();
+    if (MQTTClient.connected()) {
+      
+      //call the loop continuously to establish connection to the server
+      MQTTClient.loop();
+
+      //publish data
+      //NOTE use even when POST flag is not defined to print MQTT info
+      MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc, dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0, dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+
+      //disconnect
+      MQTTClient.disconnect();
+    }
   }
 
   //disconnect before leaving
   WiFi.disconnect();
-#endif //POST
+  
+#elif defined(QUIET)
+  //simply print MQTT message info without actually connecting
+  MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc, dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0, dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+
+  //print MQTT connection details
+  #ifdef VERBOSE
+  Serial.print("server: ");
+  Serial.println(MQTTServer);
+  Serial.print("user: ");
+  Serial.println(MQTTUsername);
+  Serial.print("auth: ");
+  Serial.println(MQTTPassword);
+  #endif //VERBOSE
+#endif
 
   //deep sleep
   ESP.deepSleep(SLEEPTIME * 1e6); //µs
@@ -548,26 +580,6 @@ void wifiConnect() {
 #endif //POST
 
 //******************************************
-//post data online using MQTT protocol
-#ifdef POST
-void postData(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dustnc0p5, float dustnc1p0, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0, float dustmc1p0, float mc1p0, float mc2p5, float mc4p0, float mc10p0, float dustsize) {
-  //connect to MQTT broker
-  MQTTConnect();
-
-  if (MQTTClient.connected()) {
-    //call the loop continuously to establish connection to the server
-    MQTTClient.loop();
-
-    //publish data
-    MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc, dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0, dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
-
-    //disconnect
-    MQTTClient.disconnect();
-  }
-}
-#endif //POST
-
-//******************************************
 #ifdef POST
 void MQTTConnect() {
 
@@ -711,11 +723,11 @@ String getMetadataString() {
 }
 
 //******************************************
-#ifdef POST
+#if defined(POST) || defined(QUIET)
 void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dustnc0p5, float dustnc1p0, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0, float dustmc1p0, float mc1p0, float mc2p5, float mc4p0, float mc10p0, float dustsize) {
 
   //print
-#ifdef VERBOSE
+#if defined(POST) && !defined(QUIET) && defined(VERBOSE)
   Serial.println("posting data");
 #endif
 
