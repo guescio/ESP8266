@@ -1,6 +1,6 @@
 /*
   This sketch reads the ambient temperature, humidity, differential pressure and particle count,
-  prints them to serial output, posts them online and then goes to sleep.
+  prints them to serial output, posts them online and then goes to sleep (unless caffeine is taken).
   The values measured are posted through MQTT.
   Temperature and humidity can be read from SHT35 and SHT85 sensors.
   Temperature can be read from an NTC.
@@ -13,6 +13,7 @@
 
 //******************************************
 //definitions
+#define CAFFEINE //do not go to deep sleep
 //#define SHTA //SHT35A or SHT85 (0x44 address)
 #define SHTB //SHT35B (0x45 address)
 //#define SPS30
@@ -27,7 +28,7 @@
 #define VDD (3.3)//voltage supply [V]
 #define SLEEPTIME (5)//s
 //#define PRINTSERIAL //print measurements to serial output
-//#define POST //connect and post measurements online
+#define POST //connect and post measurements online
 #define QUIET //connect to broker but do not post
 #define VERBOSE //print connection status and posting details
 //#define MQTTSERVER ("127.0.0.1")
@@ -114,6 +115,9 @@ void setup() {
 
 #if defined(PRINTSERIAL) || defined(VERBOSE)
   Serial.println("\nsleep, measure, post, repeat");
+  #ifdef CAFFEINE
+  Serial.println("caffeine, wow!");
+  #endif //CAFFEINE
 #endif
 
   //initialize SHTs
@@ -187,7 +191,7 @@ void setup() {
     }
   }
 
-#ifdef defined(SPS30_LIMITED_I2C_BUFFER_SIZE)
+#ifdef SPS30_LIMITED_I2C_BUFFER_SIZE
   Serial.println("The hardware has a limitation that only");
   Serial.println("  allows reading the mass concentrations.");
   Serial.println("  For more information, please check:");
@@ -201,6 +205,23 @@ void setup() {
   Wire.setClockStretchLimit(1e4);//µs
 #endif
 
+  //------------------------------------------
+  //declare measurements
+  //NOTE: initialisation to NaN is done just before reading the values
+  //float ta, rha, dpa, tb, rhb, dpb, dp, dt, tntc;
+  //float dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0;
+  //float dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize;
+  //int adc;
+
+#if defined(CAFFEINE) && defined(POST)
+  //------------------------------------------
+  //connect to wifi already
+  if (WiFi.status() != WL_CONNECTED) {
+    wifiConnect();
+  }
+#endif //CAFFEINE and POST
+
+#ifndef CAFFEINE
   //------------------------------------------
   //declare measurements
   //NOTE: initialisation to NaN is done just before reading the values
@@ -219,12 +240,32 @@ void setup() {
   //------------------------------------------
   //deep sleep
   ESP.deepSleep(SLEEPTIME * 1e6); //µs
+ #endif //CAFFEINE
 }
 
 //******************************************
 //loop() is empty since the ESP8266 is sent to deep sleep at the end of setup()
-void loop() {}
+void loop() {
 
+  //------------------------------------------
+  //declare measurements
+  //NOTE: initialisation to NaN is done just before reading the values
+  float ta, rha, dpa, tb, rhb, dpb, dp, dt, tntc;
+  float dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0;
+  float dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize;
+  int adc;
+  
+  //------------------------------------------
+  //do it all: read values, print them and post them
+  readPrintPost(
+    ta, rha, dpa, tb, rhb, dpb, dp, dt, adc, tntc,
+    dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
+    dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+
+  //------------------------------------------
+  //delay but do not sleep
+  delay(SLEEPTIME * 1e3); //ms
+}
 
 //******************************************
 //do it all: read values, print them and post them
@@ -259,7 +300,8 @@ void readPrintPost(
   //connect to wifi
   if (WiFi.status() != WL_CONNECTED) {
     wifiConnect();
-
+  }
+  
   //------------------------------------------
   //post data
   if (WiFi.status() == WL_CONNECTED) {
@@ -284,8 +326,10 @@ void readPrintPost(
   }
 
   //------------------------------------------
+  #ifndef CAFFEINE
   //disconnect before leaving
   WiFi.disconnect();
+  #endif //CAFFEINE
   
 #elif defined(QUIET)
   //------------------------------------------
