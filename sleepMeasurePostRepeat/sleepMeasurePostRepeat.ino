@@ -13,8 +13,8 @@
 
 //******************************************
 //definitions
-//#define SHTA //0x44 address //SHT35A or SHT85
-#define SHTB //0x45 address //SHT35B
+//#define SHTA //SHT35A or SHT85 (0x44 address)
+#define SHTB //SHT35B (0x45 address)
 //#define SPS30
 //#define SDP610
 //#define ADC//NOTE: set also the voltage divider resistor value
@@ -57,11 +57,10 @@
 #ifdef POST
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-//#include <guescio.h> //TEST commented out
 #endif
 
 #include <limits>
-#include <guescio.h> //TEST
+#include <guescio.h>
 
 //******************************************
 //initilization
@@ -202,33 +201,149 @@ void setup() {
   Wire.setClockStretchLimit(1e4);//µs
 #endif
 
-  //set initial values
-  float ta = std::numeric_limits<double>::quiet_NaN();//temperature A [C]
-  float rha = std::numeric_limits<double>::quiet_NaN();//relative humidity A [%]
-  float dpa = std::numeric_limits<double>::quiet_NaN();//dew point A [C]
-  float tb = std::numeric_limits<double>::quiet_NaN();//temperature B [C]
-  float rhb = std::numeric_limits<double>::quiet_NaN();//relative humidity B [%]
-  float dpb = std::numeric_limits<double>::quiet_NaN();//dew point B [C]
-  float dp = std::numeric_limits<double>::quiet_NaN();//differential pressure [Pa]
-  float dt = std::numeric_limits<double>::quiet_NaN();//temperature difference [C]
-  int adc = std::numeric_limits<double>::quiet_NaN();//ADC []
-  float tntc = std::numeric_limits<double>::quiet_NaN();//temperature NTC [C]
-  float dustnc0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particles concentration [cm^-3]
-  float dustnc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 um particles concentration [cm^-3]
-  float nc0p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <0.5 um particles concentration [cm^-3]
-  float nc1p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <1.0 um particles concentration [cm^-3]
-  float nc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <2.5 um particles concentration [cm^-3]
-  float nc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <4.0 um particles concentration [cm^-3]
-  float nc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <10.0 um particles concentration [cm^-3]
-  float dustmc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 um particles mass concentration [µg/m^-3]
-  float mc1p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <1.0 um particles mass concentration [µg/m^-3]
-  float mc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <2.5 um particles mass concentration [µg/m^-3]
-  float mc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <4.0 um particles mass concentration [µg/m^-3]
-  float mc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <10.0 um particles mass concentration [µg/m^-3]
-  float dustsize = std::numeric_limits<double>::quiet_NaN();//typical dust particle size
+  //------------------------------------------
+  //declare measurements
+  //NOTE: initialisation to NaN is done just before reading the values
+  float ta, rha, dpa, tb, rhb, dpb, dp, dt, tntc;
+  float dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0;
+  float dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize;
+  int adc;
 
-  //read values before the ESP8266 heats up
-#ifdef SHTA
+  //------------------------------------------
+  //do it all: read values, print them and post them
+  readPrintPost(
+    ta, rha, dpa, tb, rhb, dpb, dp, dt, adc, tntc,
+    dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
+    dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+
+  //------------------------------------------
+  //deep sleep
+  ESP.deepSleep(SLEEPTIME * 1e6); //µs
+}
+
+//******************************************
+//loop() is empty since the ESP8266 is sent to deep sleep at the end of setup()
+void loop() {}
+
+
+//******************************************
+//do it all: read values, print them and post them
+void readPrintPost(
+  float &ta, float &rha, float &dpa, float &tb, float &rhb, float &dpb, float &dp, float &dt, int &adc, float &tntc,
+  float &dustnc0p5, float &dustnc1p0, float &nc0p5, float &nc1p0, float &nc2p5, float &nc4p0, float &nc10p0,
+  float &dustmc1p0, float &mc1p0, float &mc2p5, float &mc4p0, float &mc10p0, float &dustsize) {
+
+  //------------------------------------------
+  //read values
+  readAllValues(
+    ta, rha, dpa, tb, rhb, dpb, dp, dt, adc, tntc,
+    dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
+    dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+
+  //------------------------------------------
+  //print serial
+#ifdef PRINTSERIAL
+  printSerial(
+    ta, rha, tb, rhb, dp, dt, adc, tntc,
+    dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
+    dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+#endif //PRINTSERIAL
+
+  //------------------------------------------
+  //connect to wifi and post data
+#ifdef POST
+  //set MQTT server
+  MQTTClient.setServer(MQTTServer, MQTTPort);
+
+  //------------------------------------------
+  //connect to wifi
+  if (WiFi.status() != WL_CONNECTED) {
+    wifiConnect();
+
+  //------------------------------------------
+  //post data
+  if (WiFi.status() == WL_CONNECTED) {
+
+    //connect to MQTT broker
+    MQTTConnect();
+    if (MQTTClient.connected()) {
+      
+      //call the loop continuously to establish connection to the server
+      MQTTClient.loop();
+
+      //publish data
+      //NOTE use even when POST flag is not defined to print MQTT info
+      MQTTPublish(
+        ta, rha, tb, rhb, dp, dt, adc, tntc,
+        dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
+        dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+
+      //disconnect
+      MQTTClient.disconnect();
+    }
+  }
+
+  //------------------------------------------
+  //disconnect before leaving
+  WiFi.disconnect();
+  
+#elif defined(QUIET)
+  //------------------------------------------
+  //simply print MQTT message info without actually connecting
+  MQTTPublish(
+    ta, rha, tb, rhb, dp, dt, adc, tntc,
+    dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
+    dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+
+  //------------------------------------------
+  //print MQTT connection details
+  #ifdef VERBOSE
+  Serial.print("server: ");
+  Serial.println(MQTTServer);
+  Serial.print("user: ");
+  Serial.println(MQTTUsername);
+  Serial.print("auth: ");
+  Serial.println(MQTTPassword);
+  #endif //VERBOSE
+#endif //POST or QUIET
+
+  //------------------------------------------
+  return;
+}
+
+//******************************************
+//read values from all sensors enabled
+void readAllValues(
+  float &ta, float &rha, float &dpa, float &tb, float &rhb, float &dpb, float &dp, float &dt, int &adc, float &tntc,
+  float &dustnc0p5, float &dustnc1p0, float &nc0p5, float &nc1p0, float &nc2p5, float &nc4p0, float &nc10p0,
+  float &dustmc1p0, float &mc1p0, float &mc2p5, float &mc4p0, float &mc10p0, float &dustsize) {
+
+  //reset values to NaN
+  ta = std::numeric_limits<double>::quiet_NaN();//temperature A [C]
+  rha = std::numeric_limits<double>::quiet_NaN();//relative humidity A [%]
+  dpa = std::numeric_limits<double>::quiet_NaN();//dew point A [C]
+  tb = std::numeric_limits<double>::quiet_NaN();//temperature B [C]
+  rhb = std::numeric_limits<double>::quiet_NaN();//relative humidity B [%]
+  dpb = std::numeric_limits<double>::quiet_NaN();//dew point B [C]
+  dp = std::numeric_limits<double>::quiet_NaN();//differential pressure [Pa]
+  dt = std::numeric_limits<double>::quiet_NaN();//temperature difference [C]
+  adc = std::numeric_limits<double>::quiet_NaN();//ADC []
+  tntc = std::numeric_limits<double>::quiet_NaN();//temperature NTC [C]
+  dustnc0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particles concentration [cm^-3]
+  dustnc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 um particles concentration [cm^-3]
+  nc0p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <0.5 um particles concentration [cm^-3]
+  nc1p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <1.0 um particles concentration [cm^-3]
+  nc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <2.5 um particles concentration [cm^-3]
+  nc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <4.0 um particles concentration [cm^-3]
+  nc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <10.0 um particles concentration [cm^-3]
+  dustmc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 um particles mass concentration [µg/m^-3]
+  mc1p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <1.0 um particles mass concentration [µg/m^-3]
+  mc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <2.5 um particles mass concentration [µg/m^-3]
+  mc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <4.0 um particles mass concentration [µg/m^-3]
+  mc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <10.0 um particles mass concentration [µg/m^-3]
+  dustsize = std::numeric_limits<double>::quiet_NaN();//typical dust particle size
+  
+  #ifdef SHTA
   ta = sht31a.readTemperature();
   rha = sht31a.readHumidity();
 #endif //SHTA
@@ -310,75 +425,12 @@ void setup() {
   adc = getADC();
 #endif //ADC
 
-
 #ifdef NTC
   tntc = getTNTC(adc);
 #endif //NTC
 
-  //print serial
-#ifdef PRINTSERIAL
-  printSerial(
-    ta, rha, tb, rhb, dp, dt, adc, tntc,
-    dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
-    dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
-#endif //PRINTSERIAL
-
-  //connect to wifi and post data
-#ifdef POST
-  //set MQTT server
-  MQTTClient.setServer(MQTTServer, MQTTPort);
-
-  //connect to wifi
-  wifiConnect();
-  if (WiFi.status() == WL_CONNECTED) {
-    
-    //connect to MQTT broker
-    MQTTConnect();
-    if (MQTTClient.connected()) {
-      
-      //call the loop continuously to establish connection to the server
-      MQTTClient.loop();
-
-      //publish data
-      //NOTE use even when POST flag is not defined to print MQTT info
-      MQTTPublish(
-        ta, rha, tb, rhb, dp, dt, adc, tntc,
-        dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
-        dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
-
-      //disconnect
-      MQTTClient.disconnect();
-    }
-  }
-
-  //disconnect before leaving
-  WiFi.disconnect();
-  
-#elif defined(QUIET)
-  //simply print MQTT message info without actually connecting
-  MQTTPublish(
-    ta, rha, tb, rhb, dp, dt, adc, tntc,
-    dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
-    dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
-
-  //print MQTT connection details
-  #ifdef VERBOSE
-  Serial.print("server: ");
-  Serial.println(MQTTServer);
-  Serial.print("user: ");
-  Serial.println(MQTTUsername);
-  Serial.print("auth: ");
-  Serial.println(MQTTPassword);
-  #endif //VERBOSE
-#endif //POST or QUIET
-
-  //deep sleep
-  ESP.deepSleep(SLEEPTIME * 1e6); //µs
+  return;
 }
-
-//******************************************
-//loop() is empty since the ESP8266 is sent to deep sleep at the end of setup()
-void loop() {}
 
 //******************************************
 //get dew point
@@ -422,9 +474,9 @@ float getTNTC(int adc) {
 //******************************************
 //print measurements to serial output
 void printSerial(
-  float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc,
-  float dustnc0p5, float dustnc1p0, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0,
-  float dustmc1p0, float mc1p0, float mc2p5, float mc4p0, float mc10p0, float dustsize) {
+  float &ta, float &rha, float &tb, float &rhb, float &dp, float &dt, int &adc, float &tntc,
+  float &dustnc0p5, float &dustnc1p0, float &nc0p5, float &nc1p0, float &nc2p5, float &nc4p0, float &nc10p0,
+  float &dustmc1p0, float &mc1p0, float &mc2p5, float &mc4p0, float &mc10p0, float &dustsize) {
 
   Serial.println();
 
@@ -741,9 +793,9 @@ String getMetadataString() {
 //******************************************
 #if defined(POST) || defined(QUIET)
 void MQTTPublish(
-  float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc,
-  float dustnc0p5, float dustnc1p0, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0,
-  float dustmc1p0, float mc1p0, float mc2p5, float mc4p0, float mc10p0, float dustsize) {
+  float &ta, float &rha, float &tb, float &rhb, float &dp, float &dt, int &adc, float &tntc,
+  float &dustnc0p5, float &dustnc1p0, float &nc0p5, float &nc1p0, float &nc2p5, float &nc4p0, float &nc10p0,
+  float &dustmc1p0, float &mc1p0, float &mc2p5, float &mc4p0, float &mc10p0, float &dustsize) {
 
   //print
 #if defined(POST) && !defined(QUIET) && defined(VERBOSE)
