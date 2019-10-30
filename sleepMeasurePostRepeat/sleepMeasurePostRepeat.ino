@@ -1,7 +1,10 @@
 /*
-  This sketch reads the ambient temperature, humidity, differential pressure and particle count, prints them to serial output, posts them online and then goes to sleep.
+  This sketch reads the ambient temperature, humidity, differential pressure and particle count,
+  prints them to serial output, posts them online and then goes to sleep.
   The values measured are posted through MQTT.
   Temperature and humidity can be read from SHT35 and SHT85 sensors.
+  Temperature can be read from an NTC.
+  The dust particle count is measured by a SPS30 sensor.
   Don't forget to connect pin 16 to the reset pin.
   Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in the definitions section below.
   To enable/disable a sensor, uncomment/comment its name in the definitions section below.
@@ -314,7 +317,10 @@ void setup() {
 
   //print serial
 #ifdef PRINTSERIAL
-  printSerial(ta, rha, tb, rhb, dp, dt, adc, tntc, dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0, dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+  printSerial(
+    ta, rha, tb, rhb, dp, dt, adc, tntc,
+    dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
+    dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
 #endif //PRINTSERIAL
 
   //connect to wifi and post data
@@ -335,7 +341,10 @@ void setup() {
 
       //publish data
       //NOTE use even when POST flag is not defined to print MQTT info
-      MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc, dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0, dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+      MQTTPublish(
+        ta, rha, tb, rhb, dp, dt, adc, tntc,
+        dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
+        dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
 
       //disconnect
       MQTTClient.disconnect();
@@ -347,7 +356,10 @@ void setup() {
   
 #elif defined(QUIET)
   //simply print MQTT message info without actually connecting
-  MQTTPublish(ta, rha, tb, rhb, dp, dt, adc, tntc, dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0, dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
+  MQTTPublish(
+    ta, rha, tb, rhb, dp, dt, adc, tntc,
+    dustnc0p5, dustnc1p0, nc0p5, nc1p0, nc2p5, nc4p0, nc10p0,
+    dustmc1p0, mc1p0, mc2p5, mc4p0, mc10p0, dustsize);
 
   //print MQTT connection details
   #ifdef VERBOSE
@@ -358,7 +370,7 @@ void setup() {
   Serial.print("auth: ");
   Serial.println(MQTTPassword);
   #endif //VERBOSE
-#endif
+#endif //POST or QUIET
 
   //deep sleep
   ESP.deepSleep(SLEEPTIME * 1e6); //µs
@@ -409,7 +421,10 @@ float getTNTC(int adc) {
 
 //******************************************
 //print measurements to serial output
-void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dustnc0p5, float dustnc1p0, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0, float dustmc1p0, float mc1p0, float mc2p5, float mc4p0, float mc10p0, float dustsize) {
+void printSerial(
+  float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc,
+  float dustnc0p5, float dustnc1p0, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0,
+  float dustmc1p0, float mc1p0, float mc2p5, float mc4p0, float mc10p0, float dustsize) {
 
   Serial.println();
 
@@ -420,7 +435,8 @@ void printSerial(float ta, float rha, float tb, float rhb, float dp, float dt, i
   Serial.print("t_b[C] RH_b[%] DP_b[C] ");
 #endif
 #ifdef SPS30
-  Serial.print("dust[cm^-3] NC0.5[cm^-3] NC1.0[cm^-3] NC2.5[cm^-3] NC4.0[cm^-3] NC10.0[cm^-3] MC0.5[µg/m^-3] MC1.0[µg/m^-3] MC2.5[µg/m^-3] MC4.0[µg/m^-3] MC10.0[µg/m^-3] dust[µg/m^-3] dust size[µm] ");
+  Serial.print("dust[cm^-3] NC0.5[cm^-3] NC1.0[cm^-3] NC2.5[cm^-3] NC4.0[cm^-3] NC10.0[cm^-3] ");
+  Serial.print("MC0.5[µg/m^-3] MC1.0[µg/m^-3] MC2.5[µg/m^-3] MC4.0[µg/m^-3] MC10.0[µg/m^-3] dust[µg/m^-3] dust size[µm] ");
 #endif
 #ifdef SDP610
   Serial.print("dP[Pa] ");
@@ -724,7 +740,10 @@ String getMetadataString() {
 
 //******************************************
 #if defined(POST) || defined(QUIET)
-void MQTTPublish(float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc, float dustnc0p5, float dustnc1p0, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0, float dustmc1p0, float mc1p0, float mc2p5, float mc4p0, float mc10p0, float dustsize) {
+void MQTTPublish(
+  float ta, float rha, float tb, float rhb, float dp, float dt, int adc, float tntc,
+  float dustnc0p5, float dustnc1p0, float nc0p5, float nc1p0, float nc2p5, float nc4p0, float nc10p0,
+  float dustmc1p0, float mc1p0, float mc2p5, float mc4p0, float mc10p0, float dustsize) {
 
   //print
 #if defined(POST) && !defined(QUIET) && defined(VERBOSE)
