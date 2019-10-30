@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
 #This script reads out the serial output from sleepMeasurePostRepeat and sends it to the broker.
-#NOTE: enable the QUIET and VERBOSE flags in sleepMeasurePostRepeat.
+#NOTE: enable the QUIET and VERBOSE flags in sleepMeasurePostRepeat
 #NOTE: this scripts runs once and then terminates.
+#NOTE: SLEEPTIME should be lower than the interval used to read the serial output
 #NOTE: add this script to the PC crontab, for example to run it every 20 seconds:
 #      * * * * * timeout 10 python3 PCPost.py
 #      * * * * * sleep 20; timeout 10 python3 PCPost.py
