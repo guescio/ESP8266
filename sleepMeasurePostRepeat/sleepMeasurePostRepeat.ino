@@ -5,7 +5,7 @@
   Temperature and humidity can be read from SHT35 and SHT85 sensors.
   Temperature can be read from an NTC.
   The dust particle count is measured by a SPS30 sensor.
-  Don't forget to connect pin 16 to the reset pin to wake up from deep sleep.
+  Don't forget to connect pin 16 to the reset pin to wake up from deep sleep (again, unless caffeine is taken).
   Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in the definitions section below.
   To enable/disable a sensor, uncomment/comment its name in the definitions section below.
   Author: Guescio.
@@ -14,9 +14,9 @@
 //******************************************
 //definitions
 #define CAFFEINE //do not go to deep sleep
-//#define SHTA //SHT35A or SHT85 (0x44 address)
+#define SHTA //SHT35A or SHT85 (0x44 address)
 #define SHTB //SHT35B (0x45 address)
-//#define SPS30
+#define SPS30
 //#define SDP610
 //#define ADC//NOTE: set also the voltage divider resistor value
 #define ADCRDIV (84.5e3)//ADC voltage resistor value [Ohm]
@@ -26,11 +26,11 @@
 #define NTCB (3435)//NTC B
 #define ADCVREF (1.0)//ADC reference voltage [V]
 #define VDD (3.3)//voltage supply [V]
-#define SLEEPTIME (20)//s
-//#define PRINTSERIAL //print measurements to serial output
-#define POST //connect and post measurements online
-//#define QUIET //connect to broker but do not post
-//#define VERBOSE //print connection status and posting details
+#define SLEEPTIME (10)//s
+////#define PRINTSERIAL //print measurements to serial output
+//#define POST //connect and post measurements online
+#define QUIET //connect to broker but do not post
+#define VERBOSE //print connection status and posting details
 //#define MQTTSERVER ("127.0.0.1")
 //#define MQTTUSER ("user")
 //#define MQTTPASSWORD ("password")
@@ -76,6 +76,15 @@ Adafruit_SHT31 sht31a = Adafruit_SHT31();
 #define SHTBADDR (0x45)
 Adafruit_SHT31 sht31b = Adafruit_SHT31();
 #endif
+
+//SPS30
+#ifdef SPS30
+s16 ret;
+u8 auto_clean_days = 2;
+u32 auto_clean;
+bool sps30available = false;
+char serial[SPS_MAX_SERIAL_LEN];
+#endif //SPS30
 
 //******************************************
 //wifi and MQTT setup
@@ -132,13 +141,7 @@ void setup() {
 #ifdef VERBOSE
   Serial.println("\ninitialising SPS30");
 #endif
-
-  s16 ret;
-  u8 auto_clean_days = 2;
-  u32 auto_clean;
-  bool sps30available = false;
-  char serial[SPS_MAX_SERIAL_LEN];
-
+  
   //probe SPS30
   for (int ii = 0; ii < 10; ii++) {
     if (sps30_probe() != 0) {
