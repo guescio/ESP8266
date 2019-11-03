@@ -5,7 +5,7 @@
   Temperature and humidity can be read from SHT35 and SHT85 sensors.
   Temperature can be read from an NTC.
   The dust particle count is measured by a SPS30 sensor.
-  Don't forget to connect pin 16 to the reset pin.
+  Don't forget to connect pin 16 to the reset pin to wake up from deep sleep.
   Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in the definitions section below.
   To enable/disable a sensor, uncomment/comment its name in the definitions section below.
   Author: Guescio.
@@ -26,11 +26,11 @@
 #define NTCB (3435)//NTC B
 #define ADCVREF (1.0)//ADC reference voltage [V]
 #define VDD (3.3)//voltage supply [V]
-#define SLEEPTIME (5)//s
+#define SLEEPTIME (20)//s
 //#define PRINTSERIAL //print measurements to serial output
 #define POST //connect and post measurements online
-#define QUIET //connect to broker but do not post
-#define VERBOSE //print connection status and posting details
+//#define QUIET //connect to broker but do not post
+//#define VERBOSE //print connection status and posting details
 //#define MQTTSERVER ("127.0.0.1")
 //#define MQTTUSER ("user")
 //#define MQTTPASSWORD ("password")
@@ -77,9 +77,6 @@ Adafruit_SHT31 sht31a = Adafruit_SHT31();
 Adafruit_SHT31 sht31b = Adafruit_SHT31();
 #endif
 
-//SPS30 does not need initializaiton
-//SDP610 does not need initialization
-
 //******************************************
 //wifi and MQTT setup
 #ifdef POST
@@ -116,7 +113,7 @@ void setup() {
 #if defined(PRINTSERIAL) || defined(VERBOSE)
   Serial.println("\nsleep, measure, post, repeat");
   #ifdef CAFFEINE
-  Serial.println("caffeine, wow!");
+  Serial.println("caffeine!");
   #endif //CAFFEINE
 #endif
 
@@ -244,7 +241,6 @@ void setup() {
 }
 
 //******************************************
-//loop() is empty since the ESP8266 is sent to deep sleep at the end of setup()
 void loop() {
 
   //------------------------------------------
@@ -362,7 +358,7 @@ void readAllValues(
   float &dustnc0p5, float &dustnc1p0, float &nc0p5, float &nc1p0, float &nc2p5, float &nc4p0, float &nc10p0,
   float &dustmc1p0, float &mc1p0, float &mc2p5, float &mc4p0, float &mc10p0, float &dustsize) {
 
-  //reset values to NaN
+  //set values to NaN
   ta = std::numeric_limits<double>::quiet_NaN();//temperature A [C]
   rha = std::numeric_limits<double>::quiet_NaN();//relative humidity A [%]
   dpa = std::numeric_limits<double>::quiet_NaN();//dew point A [C]
@@ -375,16 +371,16 @@ void readAllValues(
   tntc = std::numeric_limits<double>::quiet_NaN();//temperature NTC [C]
   dustnc0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particles concentration [cm^-3]
   dustnc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 um particles concentration [cm^-3]
-  nc0p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <0.5 um particles concentration [cm^-3]
-  nc1p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <1.0 um particles concentration [cm^-3]
-  nc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <2.5 um particles concentration [cm^-3]
-  nc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <4.0 um particles concentration [cm^-3]
-  nc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <10.0 um particles concentration [cm^-3]
-  dustmc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 um particles mass concentration [µg/m^-3]
-  mc1p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <1.0 um particles mass concentration [µg/m^-3]
-  mc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <2.5 um particles mass concentration [µg/m^-3]
-  mc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <4.0 um particles mass concentration [µg/m^-3]
-  mc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <10.0 um particles mass concentration [µg/m^-3]
+  nc0p5 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <0.5 µm particles concentration [cm^-3]
+  nc1p0 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <1.0 µm particles concentration [cm^-3]
+  nc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <2.5 µm particles concentration [cm^-3]
+  nc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <4.0 µm particles concentration [cm^-3]
+  nc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <10.0 µm particles concentration [cm^-3]
+  dustmc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 µm particles mass concentration [µg/m^-3]
+  mc1p0 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <1.0 µm particles mass concentration [µg/m^-3]
+  mc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <2.5 µm particles mass concentration [µg/m^-3]
+  mc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <4.0 µm particles mass concentration [µg/m^-3]
+  mc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <10.0 µm particles mass concentration [µg/m^-3]
   dustsize = std::numeric_limits<double>::quiet_NaN();//typical dust particle size
   
   #ifdef SHTA
@@ -443,15 +439,15 @@ void readAllValues(
       mc10p0 = m.mc_10p0; //µg/m^3
       dustsize = m.typical_particle_size; //µm
       
-      //Serial.print("particle concentration (>0.5 um and <10 um): ");
+      //Serial.print("particle concentration (>0.5 µm and <10 µm): ");
       //Serial.print(dust0p5);
       //Serial.println(" cm^-3");
-      //Serial.print("particle concentration (>0.5 um and <10 um): ");
+      //Serial.print("particle concentration (>0.5 µm and <10 µm): ");
       //Serial.print(dust0p5*pow(30.48, 3));
       //Serial.println(" ft^-3");
       //Serial.print("typical partical size: ");
       //Serial.print(m.typical_particle_size);
-      //Serial.println(" um");
+      //Serial.println(" µm");
     }
 
   }//sps30available
