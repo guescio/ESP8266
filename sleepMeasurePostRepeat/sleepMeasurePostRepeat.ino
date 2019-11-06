@@ -16,7 +16,7 @@
 #define CAFFEINE //do not go to deep sleep
 #define SHTA //SHT35A or SHT85 (0x44 address)
 #define SHTB //SHT35B (0x45 address)
-#define SPS30
+//#define SPS30
 //#define SDP610
 //#define ADC//NOTE: set also the voltage divider resistor value
 #define ADCRDIV (84.5e3)//ADC voltage resistor value [Ohm]
@@ -26,11 +26,11 @@
 #define NTCB (3435)//NTC B
 #define ADCVREF (1.0)//ADC reference voltage [V]
 #define VDD (3.3)//voltage supply [V]
-#define SLEEPTIME (10)//s
-////#define PRINTSERIAL //print measurements to serial output
-//#define POST //connect and post measurements online
-#define QUIET //connect to broker but do not post
-#define VERBOSE //print connection status and posting details
+#define SLEEPTIME (60)//s
+//#define PRINTSERIAL //print measurements to serial output
+#define POST //connect and post measurements online
+//#define QUIET //connect to broker but do not post
+//#define VERBOSE //print connection status and posting details
 //#define MQTTSERVER ("127.0.0.1")
 //#define MQTTUSER ("user")
 //#define MQTTPASSWORD ("password")
@@ -875,9 +875,9 @@ void MQTTPublish(
   else
     data += String("\"dustnc0p5\":\"NaN\"");
   if ( ! isnan(dustnc1p0))
-    data += String("\"dustnc1p0\":" + String(dustnc1p0,3));
+    data += String(",\"dustnc1p0\":" + String(dustnc1p0,3));
   else
-    data += String("\"dustnc1p0\":\"NaN\"");
+    data += String(",\"dustnc1p0\":\"NaN\"");
   if ( ! isnan(nc0p5))
     data += String(",\"nc0p5\":" + String(nc0p5,3));
   else
@@ -899,9 +899,9 @@ void MQTTPublish(
   else
     data += String(",\"nc10p0\":\"NaN\"");
   if ( ! isnan(dustmc1p0))
-    data += String("\"dustmc1p0\":" + String(dustmc1p0,3));
+    data += String(",\"dustmc1p0\":" + String(dustmc1p0,3));
   else
-    data += String("\"dustmc1p0\":\"NaN\"");
+    data += String(",\"dustmc1p0\":\"NaN\"");
   if ( ! isnan(mc1p0))
     data += String(",\"mc1p0\":" + String(mc1p0,3));
   else
