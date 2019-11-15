@@ -1,19 +1,21 @@
 /*
   This sketch reads the ambient temperature, humidity, differential pressure and particle count,
   prints them to serial output, posts them online and then goes to sleep (unless caffeine is taken).
+  Both ESP8266 and ESP32 boards are supported.
   The values measured are posted through MQTT.
   Temperature and humidity can be read from SHT35 and SHT85 sensors.
-  Temperature can be read from an NTC.
+  Temperature can be read from up to 5 NTCs.
   The dust particle count is measured by a SPS30 sensor.
-  Don't forget to connect pin 16 to the reset pin to wake up from deep sleep (again, unless caffeine is taken).
-  Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in the definitions section below.
-  To enable/disable a sensor, uncomment/comment its name in the definitions section below.
+  On ESP8266 boards, don't forget to connect pin 16 to the reset pin to wake up from deep sleep (again, unless caffeine is taken).
+  Printing and posting can be enabled/disabled by uncommenting/commenting the relative options in config.h.
+  To enable/disable a sensor, uncomment/comment its name in config.h.
   Author: Guescio.
 */
 
 //******************************************
 //libraries
-#include "config.h"
+
+#include "config.h"//NOTE: this is where alle the parameters are set
 
 #if defined(SHTA) || defined(SHTB)
 #include "Adafruit_SHT31.h"
@@ -98,10 +100,21 @@ float dpa = std::numeric_limits<double>::quiet_NaN();//dew point A [C]
 float tb = std::numeric_limits<double>::quiet_NaN();//temperature B [C]
 float rhb = std::numeric_limits<double>::quiet_NaN();//relative humidity B [%]
 float dpb = std::numeric_limits<double>::quiet_NaN();//dew point B [C]
+
 float dp = std::numeric_limits<double>::quiet_NaN();//differential pressure [Pa]
-float dt = std::numeric_limits<double>::quiet_NaN();//temperature difference [C]
-int adc = std::numeric_limits<double>::quiet_NaN();//ADC []
-float tntc = std::numeric_limits<double>::quiet_NaN();//temperature NTC [C]
+
+int adc0 = std::numeric_limits<double>::quiet_NaN();//ADC0 []
+int adc1 = std::numeric_limits<double>::quiet_NaN();//ADC1 []
+int adc2 = std::numeric_limits<double>::quiet_NaN();//ADC2 []
+int adc3 = std::numeric_limits<double>::quiet_NaN();//ADC3 []
+int adc4 = std::numeric_limits<double>::quiet_NaN();//ADC4 []
+
+float tntc0 = std::numeric_limits<double>::quiet_NaN();//temperature NTC0 [C]
+float tntc1 = std::numeric_limits<double>::quiet_NaN();//temperature NTC1 [C]
+float tntc2 = std::numeric_limits<double>::quiet_NaN();//temperature NTC2 [C]
+float tntc3 = std::numeric_limits<double>::quiet_NaN();//temperature NTC3 [C]
+float tntc4 = std::numeric_limits<double>::quiet_NaN();//temperature NTC4 [C]
+
 float dustnc0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particles concentration [cm^-3]
 float dustnc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 um particles concentration [cm^-3]
 float dustnc2p5 = std::numeric_limits<double>::quiet_NaN();//>2.5 um particles concentration [cm^-3]
@@ -126,35 +139,35 @@ void setup() {
   Serial.begin(115200);
   while (!Serial) {}
 
-#if defined(PRINTSERIAL) || defined(VERBOSE)
+  #if defined(PRINTSERIAL) || defined(VERBOSE)
   Serial.println("\nsleep, measure, post, repeat");
   #ifdef CAFFEINE
   Serial.println("caffeine!");
   #endif //CAFFEINE
-#endif
+  #endif
 
   //initialize SHTs
-#ifdef SHTA
+  #ifdef SHTA
   sht31a.begin(SHTAADDR);
-#endif
+  #endif
 
-#ifdef SHTB
+  #ifdef SHTB
   sht31b.begin(SHTBADDR);
-#endif
+  #endif
 
   //initialize SPS30
-#ifdef SPS30
+  #ifdef SPS30
 
-#ifdef VERBOSE
+  #ifdef VERBOSE
   Serial.println("\ninitialising SPS30");
-#endif
+  #endif
   
   //probe SPS30
   for (int ii = 0; ii < 10; ii++) {
     if (sps30_probe() != 0) {
-#ifdef VERBOSE
+      #ifdef VERBOSE
       Serial.println("SPS30 sensor probing failed");
-#endif //VERBOSE
+      #endif //VERBOSE
     } else {
       sps30available = true;
       break;
@@ -180,10 +193,10 @@ void setup() {
   if (sps30available) {
     ret = sps30_set_fan_auto_cleaning_interval_days(auto_clean_days);
     if (ret) {
-#ifdef VERBOSE
+      #ifdef VERBOSE
       Serial.print("SPS30 error setting the auto-clean interval: ");
       Serial.println(ret);
-#endif //VERBOSE
+      #endif //VERBOSE
     }
   }
 
@@ -191,37 +204,36 @@ void setup() {
   if (sps30available) {
     ret = sps30_start_measurement();
     if (ret < 0) {
-#ifdef VERBOSE
+      #ifdef VERBOSE
       Serial.print("SPS30 error starting measurement\n");
-#endif //verbose
+      #endif //verbose
       sps30available = false;
     }
   }
 
-#ifdef SPS30_LIMITED_I2C_BUFFER_SIZE
+  #ifdef SPS30_LIMITED_I2C_BUFFER_SIZE
   Serial.println("The hardware has a limitation that only");
   Serial.println("  allows reading the mass concentrations.");
   Serial.println("  For more information, please check:");
   Serial.println("  https://github.com/Sensirion/arduino-sps#esp8266-partial-legacy-support\n");
-#endif //SPS30_LIMITED_I2C_BUFFER_SIZE
-#endif //SPS30
+  #endif //SPS30_LIMITED_I2C_BUFFER_SIZE
+  #endif //SPS30
 
   //initialize SDP610
-#ifdef SDP610
+  #ifdef SDP610
   Wire.begin();
   Wire.setClockStretchLimit(1e4);//µs
-#endif
+  #endif
 
-#if defined(CAFFEINE) && defined(POST)
+  #if defined(CAFFEINE) && defined(POST)
   //------------------------------------------
   //connect to wifi already
   if (WiFi.status() != WL_CONNECTED) {
     wifiConnect();
   }
-#endif //CAFFEINE and POST
+  #endif //CAFFEINE and POST
 
-#ifndef CAFFEINE
-
+  #ifndef CAFFEINE
   //------------------------------------------
   //do it all: read values, print them and post them
   readPrintPost();
@@ -229,7 +241,7 @@ void setup() {
   //------------------------------------------
   //deep sleep
   ESP.deepSleep(SLEEPTIME * 1e6); //µs
-#endif //CAFFEINE
+  #endif //CAFFEINE
 }
 
 //******************************************
@@ -254,13 +266,13 @@ void readPrintPost() {
 
   //------------------------------------------
   //print serial
-#ifdef PRINTSERIAL
+  #ifdef PRINTSERIAL
   printSerial();
-#endif //PRINTSERIAL
+  #endif //PRINTSERIAL
 
   //------------------------------------------
   //connect to wifi and post data
-#ifdef POST
+  #ifdef POST
   //set MQTT server
   MQTTClient.setServer(MQTTServer, MQTTPort);
 
@@ -296,7 +308,7 @@ void readPrintPost() {
   WiFi.disconnect();
   #endif //CAFFEINE
   
-#elif defined(QUIET)
+  #elif defined(QUIET)
   //------------------------------------------
   //simply print MQTT message info without actually connecting
   MQTTPublish();
@@ -311,7 +323,7 @@ void readPrintPost() {
   Serial.print("auth: ");
   Serial.println(MQTTPassword);
   #endif //VERBOSE
-#endif //POST or QUIET
+  #endif //POST or QUIET
 
   //------------------------------------------
   return;
@@ -321,6 +333,7 @@ void readPrintPost() {
 //read values from all sensors enabled
 void readAllValues() {
 
+  //------------------------------------------
   //set values to NaN
   ta = std::numeric_limits<double>::quiet_NaN();//temperature A [C]
   rha = std::numeric_limits<double>::quiet_NaN();//relative humidity A [%]
@@ -328,10 +341,21 @@ void readAllValues() {
   tb = std::numeric_limits<double>::quiet_NaN();//temperature B [C]
   rhb = std::numeric_limits<double>::quiet_NaN();//relative humidity B [%]
   dpb = std::numeric_limits<double>::quiet_NaN();//dew point B [C]
+
   dp = std::numeric_limits<double>::quiet_NaN();//differential pressure [Pa]
-  dt = std::numeric_limits<double>::quiet_NaN();//temperature difference [C]
-  adc = std::numeric_limits<double>::quiet_NaN();//ADC []
-  tntc = std::numeric_limits<double>::quiet_NaN();//temperature NTC [C]
+  
+  adc0 = std::numeric_limits<double>::quiet_NaN();//ADC0 []
+  adc1 = std::numeric_limits<double>::quiet_NaN();//ADC1 []
+  adc2 = std::numeric_limits<double>::quiet_NaN();//ADC2 []
+  adc3 = std::numeric_limits<double>::quiet_NaN();//ADC3 []
+  adc4 = std::numeric_limits<double>::quiet_NaN();//ADC4 []
+  
+  tntc0 = std::numeric_limits<double>::quiet_NaN();//temperature NTC0 [C]
+  tntc1 = std::numeric_limits<double>::quiet_NaN();//temperature NTC1 [C]
+  tntc2 = std::numeric_limits<double>::quiet_NaN();//temperature NTC2 [C]
+  tntc3 = std::numeric_limits<double>::quiet_NaN();//temperature NTC3 [C]
+  tntc4 = std::numeric_limits<double>::quiet_NaN();//temperature NTC4 [C]
+  
   dustnc0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particles concentration [cm^-3]
   dustnc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 um particles concentration [cm^-3]
   dustnc2p5 = std::numeric_limits<double>::quiet_NaN();//>2.5 um particles concentration [cm^-3]
@@ -349,18 +373,20 @@ void readAllValues() {
   mc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <4.0 µm particles mass concentration [µg/m^-3]
   mc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <10.0 µm particles mass concentration [µg/m^-3]
   dustsize = std::numeric_limits<double>::quiet_NaN();//typical dust particle size
-  
+
+  //------------------------------------------
   #ifdef SHTA
   ta = sht31a.readTemperature();
   rha = sht31a.readHumidity();
-#endif //SHTA
+  #endif //SHTA
 
-#ifdef SHTB
+  #ifdef SHTB
   tb = sht31b.readTemperature();
   rhb = sht31b.readHumidity();
-#endif //SHTB
+  #endif //SHTB
 
-#ifdef SPS30
+  //------------------------------------------
+  #ifdef SPS30
   if (sps30available) {
 
     struct sps30_measurement m;
@@ -370,14 +396,14 @@ void readAllValues() {
     for (int ii = 0; ii < 10; ii++) {
       ret = sps30_read_data_ready(&data_ready);
       if (ret < 0) {
-#ifdef VERBOSE
+        #ifdef VERBOSE
         Serial.print("SPS30 error reading data-ready flag: ");
         Serial.println(ret);
-#endif //VERBOSE
+        #endif //VERBOSE
       } else if (!data_ready) {
-#ifdef VERBOSE
+        #ifdef VERBOSE
         Serial.println("SPS30 data not ready, no new measurement available");
-#endif //VERBOSE
+        #endif //VERBOSE
       } else {
         break;
       }
@@ -388,9 +414,9 @@ void readAllValues() {
     //read SPS30 measurement
     ret = sps30_read_measurement(&m);
     if (ret < 0) {
-#ifdef VERBOSE
+      #ifdef VERBOSE
       Serial.println("SPS30 error reading measurement");
-#endif //VERBOSE
+      #endif //VERBOSE
     } else {
       dustnc0p5 = (m.nc_10p0 - m.nc_0p5); //particles/cm^3
       dustnc1p0 = (m.nc_10p0 - m.nc_1p0); //particles/cm^3
@@ -422,23 +448,66 @@ void readAllValues() {
     }
 
   }//sps30available
-#endif //SPS30
+  #endif //SPS30
 
-#ifdef SDP610
+  //------------------------------------------
+  #ifdef SDP610
   dp = SDP6x.GetPressureDiff();
-#endif //SDP610
+  #endif //SDP610
 
-#if defined(SHTA) && defined(SHTB)
-  dt = ta - tb;
-#endif //SHTA && SHTB
+  //------------------------------------------
+  #if defined(ADC0) or defined (NTC0)
+  #ifdef ESP32
+  adc0 = getADC(A2); //ESP32 A2/34
+  #else
+  adc0 = getADC(A0); //ESP8266 A0/ADC
+  #endif
+  #endif //ADC0 || NTC0
 
-#if defined(ADC) or defined (NTC)
-  adc = getADC();
-#endif //ADC
+  #ifdef ESP32
+  
+  #if defined(ADC1) or defined (NTC1)
+  adc1 = getADC(A3); //ESP32 A3/39
+  #endif //ADC1 || NTC1
 
-#ifdef NTC
-  tntc = getTNTC(adc);
-#endif //NTC
+  #if defined(ADC2) or defined (NTC2)
+  adc2 = getADC(A4); //ESP32 A4/36
+  #endif //ADC2 || NTC2
+
+  #if defined(ADC3) or defined (NTC3)
+  adc3 = getADC(A7); //ESP32 A7/32
+  #endif //ADC3 || NTC3
+
+  #if defined(ADC4) or defined (NTC4)
+  adc4 = getADC(A9); //ESP32 A9/33
+  #endif //ADC4 || NTC4
+
+  #endif //ESP32
+
+  //------------------------------------------  
+  #ifdef NTC0
+  tntc0 = getTNTC(adc0, ADC0RDIV, NTC0T0, NTC0B, NTC0R0);
+  #endif //NTC0
+
+  #ifdef ESP32
+  
+  #ifdef NTC1
+  tntc1 = getTNTC(adc1, ADC1RDIV, NTC1T0, NTC1B, NTC1R0);
+  #endif //NTC1
+
+  #ifdef NTC2
+  tntc2 = getTNTC(adc2, ADC2RDIV, NTC2T0, NTC2B, NTC2R0);
+  #endif //NTC2
+
+  #ifdef NTC3
+  tntc3 = getTNTC(adc3, ADC3RDIV, NTC3T0, NTC3B, NTC3R0);
+  #endif //NTC3
+
+  #ifdef NTC4
+  tntc4 = getTNTC(adc4, ADC4RDIV, NTC4T0, NTC4B, NTC4R0);
+  #endif //NTC4
+
+  #endif //ESP32
 
   return;
 }
@@ -455,16 +524,11 @@ float getDewPoint(float t, float rh) {
 
 //******************************************
 //get ADC value
-#if defined(ADC) or defined(NTC)
-float getADC() {
+float getADC(int pin) {
   int value = 0;
   int nreadings = 10;
   for (int ii = 0; ii < nreadings; ii++) {
-    #ifdef ESP32
-    value += analogRead(A2); //ESP32
-    #else
-    value += analogRead(A0); //ESP8266
-    #endif
+    value += analogRead(pin);
     delay(10);//ms
   }
   if (! isnan(value)) {
@@ -472,19 +536,16 @@ float getADC() {
   }
   else return std::numeric_limits<double>::quiet_NaN();
 }
-#endif //ADC or NTC
 
 //******************************************
 //get NTC temperature
-#ifdef NTC
-float getTNTC(int adc) {
+float getTNTC(int adc, float adcrdiv, float ntct0, float ntcb, float ntcr0) {
   if (! isnan(adc)) {
-    float rntc = ADCRDIV / (1023. / adc * VDD / ADCVREF - 1.); //Ohm
-    return (1. / ((1. / NTCT0) + (1. / NTCB) * log((rntc / NTCR0))) - 273.15); //C
+    float rntc = adcrdiv / (1023. / adc * VDD / ADCVREF - 1.); //Ohm
+    return (1. / ((1. / ntct0) + (1. / ntcb) * log((rntc / ntcr0))) - 273.15); //C
   }
   else return std::numeric_limits<double>::quiet_NaN();
 }
-#endif //NTC
 
 //******************************************
 //print measurements to serial output
@@ -492,47 +553,76 @@ void printSerial() {
 
   Serial.println();
 
-#ifdef SHTA
+  #ifdef SHTA
   Serial.print("t_a[C] RH_a[%] DP_a[C] ");
-#endif
-#ifdef SHTB
+  #endif
+  #ifdef SHTB
   Serial.print("t_b[C] RH_b[%] DP_b[C] ");
-#endif
-#ifdef SPS30
+  #endif
+
+  #ifdef SPS30
   Serial.print("dust[cm^-3] NC0.5[cm^-3] NC1.0[cm^-3] NC2.5[cm^-3] NC4.0[cm^-3] NC10.0[cm^-3] ");
   Serial.print("dust[µg/m^-3] MC0.5[µg/m^-3] MC1.0[µg/m^-3] MC2.5[µg/m^-3] MC4.0[µg/m^-3] MC10.0[µg/m^-3] dust size[µm] ");
-#endif
-#ifdef SDP610
+  #endif
+
+  #ifdef SDP610
   Serial.print("dP[Pa] ");
-#endif
-#ifdef ADC
-  Serial.print("ADC ");
-#endif
-#ifdef NTC
-  Serial.print("t_NTC[C] ");
-#endif
+  #endif
+
+  #ifdef ADC0
+  Serial.print("ADC0 ");
+  #endif
+  #ifdef ADC1
+  Serial.print("ADC1 ");
+  #endif
+  #ifdef ADC2
+  Serial.print("ADC2 ");
+  #endif
+  #ifdef ADC3
+  Serial.print("ADC3 ");
+  #endif
+  #ifdef ADC4
+  Serial.print("ADC4 ");
+  #endif
+
+  #ifdef NTC0
+  Serial.print("t_NTC0[C] ");
+  #endif
+  #ifdef NTC1
+  Serial.print("t_NTC1[C] ");
+  #endif
+  #ifdef NTC2
+  Serial.print("t_NTC2[C] ");
+  #endif
+  #ifdef NTC3
+  Serial.print("t_NTC3[C] ");
+  #endif
+  #ifdef NTC4
+  Serial.print("t_NTC4[C] ");
+  #endif
+  
   Serial.println();
 
   //print measurements to serial output
-#ifdef SHTA
+  #ifdef SHTA
   Serial.print(ta);//temperature
   Serial.print("  ");
   Serial.print(rha);//humidity
   Serial.print("   ");
   Serial.print(getDewPoint(ta, rha)); //dew point
   Serial.print("   ");
-#endif
+  #endif
 
-#ifdef SHTB
+  #ifdef SHTB
   Serial.print(tb);//temperature
   Serial.print("  ");
   Serial.print(rhb);//humidity
   Serial.print("   ");
   Serial.print(getDewPoint(tb, rhb)); //dew point
   Serial.print("   ");
-#endif
+  #endif
 
-#ifdef SPS30
+  #ifdef SPS30
   Serial.print(dustnc0p5,3);//particle concentration (>0.5 um)
   Serial.print("       ");
   Serial.print(nc0p5,3);//particle concentration (<0.5 um)
@@ -557,22 +647,54 @@ void printSerial() {
   Serial.print("         ");
   Serial.print(dustsize,3);//typical dust particle size (µm)
   Serial.print("         ");
-#endif
+  #endif
 
-#ifdef SDP610
+  #ifdef SDP610
   Serial.print(dp);//differential pressure
   Serial.print("  ");
-#endif
+  #endif
 
-#ifdef ADC
-  Serial.print(adc);//ADC
+  #ifdef ADC0
+  Serial.print(adc0);//ADC0
   Serial.print("  ");
-#endif
-
-#ifdef NTC
-  Serial.print(tntc);//temperature
+  #endif
+  #ifdef ADC1
+  Serial.print(adc1);//ADC1
   Serial.print("  ");
-#endif
+  #endif
+  #ifdef ADC2
+  Serial.print(adc2);//ADC2
+  Serial.print("  ");
+  #endif
+  #ifdef ADC3
+  Serial.print(adc3);//ADC3
+  Serial.print("  ");
+  #endif
+  #ifdef ADC4
+  Serial.print(adc4);//ADC4
+  Serial.print("  ");
+  #endif
+  
+  #ifdef NTC0
+  Serial.print(tntc0);//NTC0
+  Serial.print("  ");
+  #endif
+  #ifdef NTC1
+  Serial.print(tntc1);//NTC1
+  Serial.print("  ");
+  #endif
+  #ifdef NTC2
+  Serial.print(tntc2);//NTC2
+  Serial.print("  ");
+  #endif
+  #ifdef NTC3
+  Serial.print(tntc3);//NTC3
+  Serial.print("  ");
+  #endif
+  #ifdef NTC4
+  Serial.print(tntc4);//NTC4
+  Serial.print("  ");
+  #endif
 
   Serial.println();
 }
@@ -587,17 +709,17 @@ void wifiConnect() {
   WiFi.disconnect();
   WiFi.begin(ssid, password);
 
-#ifdef VERBOSE
+  #ifdef VERBOSE
   Serial.println();
   Serial.print("wifi connecting to ");
   Serial.println(ssid);
-#endif //VERBOSE
+  #endif //VERBOSE
 
   //connect
   for (int ii = 0; ii < 20; ii++) {
 
     //status
-#ifdef VERBOSE
+    #ifdef VERBOSE
     Serial.print("status: ");
     switch (WiFi.status()) {
       case 0:
@@ -626,10 +748,10 @@ void wifiConnect() {
         Serial.println("unknown");
         break;
     }
-#endif //VERBOSE
+    #endif //VERBOSE
 
     if (WiFi.status() == WL_CONNECTED) {
-#ifdef VERBOSE
+      #ifdef VERBOSE
       Serial.println();
       Serial.print("wifi connected to ");
       Serial.println(ssid);
@@ -638,7 +760,7 @@ void wifiConnect() {
       Serial.print("RSSI: ");
       Serial.println(WiFi.RSSI());
       Serial.println();
-#endif //VERBOSE
+      #endif //VERBOSE
       break;
     }
 
@@ -646,14 +768,14 @@ void wifiConnect() {
     delay(1000);//ms
   }
 
-#ifdef VERBOSE
+  #ifdef VERBOSE
   if (WiFi.status() != WL_CONNECTED) {
     Serial.print("could not connect to ");
     Serial.println(ssid);
     Serial.println("abort");
     Serial.println();
   }
-#endif
+  #endif
 }
 #endif //POST
 
@@ -662,11 +784,11 @@ void wifiConnect() {
 void MQTTConnect() {
 
   //show status
-#ifdef VERBOSE
+  #ifdef VERBOSE
   Serial.print("connecting to MQTT server ");
   Serial.print(MQTTServer);
   Serial.println("...");
-#endif
+  #endif
 
   //random clientID
   char clientID[10];
@@ -688,7 +810,7 @@ void MQTTConnect() {
     //connection status
     //print to know why the connection failed
     //see http://pubsubclient.knolleary.net/api.html#state for the failure code explanation
-#ifdef VERBOSE
+    #ifdef VERBOSE
     Serial.print("status: ");
 
     switch (MQTTClient.state()) {
@@ -726,14 +848,14 @@ void MQTTConnect() {
         Serial.println("unknown");
         break;
     }
-#endif
+    #endif
 
     //upon successful connection
     if (MQTTClient.connected()) {
-#ifdef VERBOSE
+      #ifdef VERBOSE
       Serial.print("MQTT connected to ");
       Serial.println(MQTTServer);
-#endif
+      #endif
       break;
     }
 
@@ -777,26 +899,26 @@ String getTRHString(float t, float rh) {
 //metadata string with institute, room, location and name
 String getMetadataString() {
   String data = String("");
-#ifdef INSTITUTE
+  #ifdef INSTITUTE
   data += String(",\"institute\":\"");
   data += INSTITUTE;
   data += String("\"");
-#endif //INSTITUTE
-#ifdef ROOM
+  #endif //INSTITUTE
+  #ifdef ROOM
   data += String(",\"room\":\"");
   data += ROOM;
   data += String("\"");
-#endif //ROOM
-#ifdef LOCATION
+  #endif //ROOM
+  #ifdef LOCATION
   data += String(",\"location\":\"");
   data += LOCATION;
   data += String("\"");
-#endif //LOCATION
-#ifdef NAME
+  #endif //LOCATION
+  #ifdef NAME
   data += String(",\"name\":\"");
   data += NAME;
   data += String("\"");
-#endif //NAME
+  #endif //NAME
   return data;
 }
 
@@ -805,34 +927,34 @@ String getMetadataString() {
 void MQTTPublish() {
 
   //print
-#if defined(POST) && !defined(QUIET) && defined(VERBOSE)
+  #if defined(POST) && !defined(QUIET) && defined(VERBOSE)
   Serial.println("posting data");
-#endif
+  #endif
 
   //create data string to send to MQTT broker
   //NOTE the string is a JSON array
   String data = String("[");
 
   //SHTA
-#ifdef SHTA
+  #ifdef SHTA
   data += String("{");
   data += getTRHString(ta, rha);
   data += String(",\"sensor\":\"SHTA\"");
   data += getMetadataString();
   data += String("},");
-#endif //SHTA
+  #endif //SHTA
 
   //SHTB
-#ifdef SHTB
+  #ifdef SHTB
   data += String("{");
   data += getTRHString(tb, rhb);
   data += String(",\"sensor\":\"SHTB\"");
   data += getMetadataString();
   data += String("},");
-#endif //SHTB
+  #endif //SHTB
 
   //SPS30
-#ifdef SPS30
+  #ifdef SPS30
   data += String("{");
   if ( ! isnan(dustnc0p5))
     data += String("\"dustnc0p5\":" + String(dustnc0p5,6));
@@ -905,10 +1027,10 @@ void MQTTPublish() {
   data += String(",\"sensor\":\"SPS30\"");
   data += getMetadataString();
   data += String("},");
-#endif //SPS30
+  #endif //SPS30
 
   //SDP610
-#ifdef SDP610
+  #ifdef SDP610
   data += String("{");
   if ( ! isnan(dp))
     data += String("\"differentialpressure\":" + String(dp));
@@ -917,10 +1039,10 @@ void MQTTPublish() {
   data += String(",\"sensor\":\"SDP610\"");
   data += getMetadataString();
   data += String("},");
-#endif //SDP610
+  #endif //SDP610
 
   //ADC
-#ifdef ADC
+  #ifdef ADC
   data += String("{");
   if ( ! isnan(adc))
     data += String("\"adc\":" + String(adc));
@@ -929,16 +1051,16 @@ void MQTTPublish() {
   data += String(",\"sensor\":\"ADC\"");
   data += getMetadataString();
   data += String("},");
-#endif //ADC
+  #endif //ADC
 
   //NTC
-#ifdef NTC
+  #ifdef NTC
   data += String("{");
   data += getTRHString(tntc, std::numeric_limits<double>::quiet_NaN());
   data += String(",\"sensor\":\"NTC\"");
   data += getMetadataString();
   data += String("},");
-#endif //NTC
+  #endif //NTC
 
   //remove trailing ","
   if (data.endsWith(",")) {
@@ -954,43 +1076,43 @@ void MQTTPublish() {
   data.toCharArray(msgBuffer, length + 1);
 
   //print message
-#ifdef VERBOSE
+  #ifdef VERBOSE
   Serial.print("message: ");
   Serial.println(msgBuffer);
   Serial.print("message length: ");
   Serial.println(length);
-#endif
+  #endif
 
   //create topic string
   String topicString = MQTTTOPIC;
 
   //append institute to topic
-#ifdef INSTITUTE
+  #ifdef INSTITUTE
   topicString += "/";
   topicString += INSTITUTE;
-#endif //INSTITUTE
+  #endif //INSTITUTE
 
   length = topicString.length();
   char topicBuffer[length];
   topicString.toCharArray(topicBuffer, length + 1);
-#ifdef VERBOSE
+  #ifdef VERBOSE
   Serial.print("topic: ");
   Serial.println(topicString);
-#endif
+  #endif
 
   //publish
-#ifndef QUIET
+  #ifndef QUIET
   if (MQTTClient.publish(topicBuffer, msgBuffer)) {
-#ifdef VERBOSE
+    #ifdef VERBOSE
     Serial.println("success");
-#endif //VERBOSE
+    #endif //VERBOSE
   } else {
-#ifdef VERBOSE
+    #ifdef VERBOSE
     Serial.println("fail");
-#endif //VERBOSE
+    #endif //VERBOSE
   }
   Serial.println();
-#endif //QUIET
+  #endif //QUIET
 }
 #endif //POST
 
