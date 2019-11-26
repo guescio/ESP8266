@@ -14,8 +14,10 @@
 
 //******************************************
 //libraries
-
-#include "config.h"//NOTE: this is where alle the parameters are set
+#include "config.h"//NOTE: this is where alle the parameters are set, edit this
+#include "limits.h"
+#include "ArduinoJson.h"
+#include "guescio.h"
 
 #if defined(SHTA) || defined(SHTB)
 #include "Adafruit_SHT31.h"
@@ -26,21 +28,18 @@
 #endif
 
 #ifdef SDP610
-#include <Wire.h>
+#include "Wire.h"
 #include "SDP6x.h"
 #endif
 
 #ifdef POST
 #ifdef ESP32
-#include <WiFi.h> //ESP32
+#include "WiFi.h" //ESP32
 #else
-#include <ESP8266WiFi.h> //ESP8266
+#include "ESP8266WiFi.h" //ESP8266
 #endif
-#include <PubSubClient.h>
+#include "PubSubClient.h"
 #endif
-
-#include <limits>
-#include <guescio.h>
 
 //******************************************
 //initilization
@@ -75,7 +74,7 @@ const char* password = WIFIPASSWORD;
 WiFiClient WiFiclient;
 #endif //POST
 
-#if defined(POST) || defined(QUIET)
+#if defined(POST) || defined(VERBOSE)
 //MQTT
 char MQTTServer[] = MQTTSERVER;
 long MQTTPort = 1883;
@@ -85,7 +84,7 @@ char MQTTPassword[] = MQTTPASSWORD;
 static const char alphanum[] = "0123456789"
                                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                "abcdefghijklmnopqrstuvwxyz";
-#endif //POST || QUIET
+#endif //POST || VERBOSE
                                
 #ifdef POST 
 //initialize PuBSubClient library
@@ -136,17 +135,21 @@ float dustsize = std::numeric_limits<double>::quiet_NaN();//average dust particl
 //******************************************
 //setup
 void setup() {
+
+  //------------------------------------------
   Serial.begin(115200);
   while (!Serial) {}
 
+  //------------------------------------------
   #if defined(PRINTSERIAL) || defined(VERBOSE)
   Serial.println("\nsleep, measure, post, repeat");
   #ifdef CAFFEINE
   Serial.println("caffeine!");
   #endif //CAFFEINE
-  #endif
+  #endif //PRINTSERIAL or VERBOSE
 
-  //initialize SHTs
+  //------------------------------------------
+  //initialize SHT sensors
   #ifdef SHTA
   sht31a.begin(SHTAADDR);
   #endif
@@ -155,13 +158,14 @@ void setup() {
   sht31b.begin(SHTBADDR);
   #endif
 
+  //------------------------------------------
   //initialize SPS30
   #ifdef SPS30
 
   #ifdef VERBOSE
   Serial.println("\ninitialising SPS30");
   #endif
-  
+
   //probe SPS30
   for (int ii = 0; ii < 10; ii++) {
     if (sps30_probe() != 0) {
@@ -219,26 +223,26 @@ void setup() {
   #endif //SPS30_LIMITED_I2C_BUFFER_SIZE
   #endif //SPS30
 
+  //------------------------------------------
   //initialize SDP610
   #ifdef SDP610
   Wire.begin();
   Wire.setClockStretchLimit(1e4);//µs
   #endif
 
-  #if defined(CAFFEINE) && defined(POST)
   //------------------------------------------
-  //connect to wifi already
+  //if needed, connect to wifi already
+  #if defined(CAFFEINE) && defined(POST)
   if (WiFi.status() != WL_CONNECTED) {
     wifiConnect();
   }
   #endif //CAFFEINE and POST
 
-  #ifndef CAFFEINE
   //------------------------------------------
-  //do it all: read values, print them and post them
+  #ifndef CAFFEINE
+  //read, print and post values
   readPrintPost();
   
-  //------------------------------------------
   //deep sleep
   ESP.deepSleep(SLEEPTIME * 1e6); //µs
   #endif //CAFFEINE
@@ -246,92 +250,37 @@ void setup() {
 
 //******************************************
 void loop() {
-  
-  //------------------------------------------
-  //do it all: read values, print them and post them
-  readPrintPost();
 
-  //------------------------------------------
+  //read, print and post values
+  readPrintPost();
+  
   //delay but do not sleep
   delay(SLEEPTIME * 1e3); //ms
 }
 
 //******************************************
-//do it all: read values, print them and post them
+//read, print and post values
 void readPrintPost() {
 
-  //------------------------------------------
   //read values
-  readAllValues();
+  readValues();
 
-  //------------------------------------------
-  //print serial
+  //print values to serial
   #ifdef PRINTSERIAL
-  printSerial();
+  printValues();
   #endif //PRINTSERIAL
 
-  //------------------------------------------
-  //connect to wifi and post data
-  #ifdef POST
-  //set MQTT server
-  MQTTClient.setServer(MQTTServer, MQTTPort);
-
-  //------------------------------------------
-  //connect to wifi
-  if (WiFi.status() != WL_CONNECTED) {
-    wifiConnect();
-  }
+  //post values
+  #if defined(POST) || defined(VERBOSE)
+  postValues();
+  #endif //POST or VERBOSE
   
-  //------------------------------------------
-  //post data
-  if (WiFi.status() == WL_CONNECTED) {
-
-    //connect to MQTT broker
-    MQTTConnect();
-    if (MQTTClient.connected()) {
-      
-      //call the loop continuously to establish connection to the server
-      MQTTClient.loop();
-
-      //publish data
-      //NOTE use even when POST flag is not defined to print MQTT info
-      MQTTPublish();
-
-      //disconnect
-      MQTTClient.disconnect();
-    }
-  }
-
-  //------------------------------------------
-  #ifndef CAFFEINE
-  //disconnect before leaving
-  WiFi.disconnect();
-  #endif //CAFFEINE
-  
-  #elif defined(QUIET)
-  //------------------------------------------
-  //simply print MQTT message info without actually connecting
-  MQTTPublish();
-
-  //------------------------------------------
-  //print MQTT connection details
-  #ifdef VERBOSE
-  Serial.print("server: ");
-  Serial.println(MQTTServer);
-  Serial.print("user: ");
-  Serial.println(MQTTUsername);
-  Serial.print("auth: ");
-  Serial.println(MQTTPassword);
-  #endif //VERBOSE
-  #endif //POST or QUIET
-
-  //------------------------------------------
   return;
 }
 
 //******************************************
-//read values from all sensors enabled
-void readAllValues() {
+//read values from enabled sensors
+void readValues() {
 
   //------------------------------------------
   //set values to NaN
@@ -525,14 +474,18 @@ float getDewPoint(float t, float rh) {
 //******************************************
 //get ADC value
 float getADC(int pin) {
+  #ifdef ESP32
+  analogReadResolution(NBITS);
+  analogSetWidth(NBITS);
+  analogSetAttenuation(ADC_0db);
+  #endif //ESP32
   int value = 0;
-  int nreadings = 10;
-  for (int ii = 0; ii < nreadings; ii++) {
+  for (int ii = 0; ii < NADCREADINGS; ii++) {
     value += analogRead(pin);
     delay(10);//ms
   }
   if (! isnan(value)) {
-    return value / nreadings;
+    return value / NADCREADINGS;
   }
   else return std::numeric_limits<double>::quiet_NaN();
 }
@@ -541,15 +494,15 @@ float getADC(int pin) {
 //get NTC temperature
 float getTNTC(int adc, float adcrdiv, float ntct0, float ntcb, float ntcr0) {
   if (! isnan(adc)) {
-    float rntc = adcrdiv / (1023. / adc * VDD / ADCVREF - 1.); //Ohm
+    float rntc = adcrdiv / ((pow(2, NBITS) - 1.) / adc * VDD / ADCVREF - 1.); //Ohm
     return (1. / ((1. / ntct0) + (1. / ntcb) * log((rntc / ntcr0))) - 273.15); //C
   }
   else return std::numeric_limits<double>::quiet_NaN();
 }
 
 //******************************************
-//print measurements to serial output
-void printSerial() {
+//print values to serial output
+void printValues() {
 
   Serial.println();
 
@@ -700,8 +653,118 @@ void printSerial() {
 }
 
 //******************************************
+//post values from enbled sensors
+void postValues() {
+
+  //------------------------------------------
+  //MQTT message
+  StaticJsonDocument<2056> doc;
+  getMQTTMessage(doc);
+
+  //convert message JSON to char array
+  char message[measureJson(doc)+1];
+  serializeJson(doc, message, measureJson(doc)+1);
+
+  //print message
+  #ifdef VERBOSE
+  Serial.println();
+  Serial.println("JSON: ");
+  serializeJsonPretty(doc, Serial);
+  Serial.println();
+  Serial.print("message: ");
+  Serial.println(message);
+  Serial.print("message length: ");
+  Serial.println(measureJson(doc));
+  #endif //VERBOSE
+
+  //------------------------------------------
+  //MQTT topic
+  String topicString = MQTTTOPIC;
+
+  //append institute
+  #ifdef INSTITUTE
+  topicString += "/";
+  topicString += INSTITUTE;
+  #endif //INSTITUTE
+
+  //convert to char
+  char topic[topicString.length()];
+  topicString.toCharArray(topic, topicString.length() + 1);
+
+  //print topic
+  #ifdef VERBOSE
+  Serial.print("topic: ");
+  Serial.println(topic);
+  #endif //VERBOSE
+
+  //------------------------------------------
+  //MQTT details
+  #ifdef VERBOSE
+  Serial.print("server: ");
+  Serial.println(MQTTServer);
+  Serial.print("user: ");
+  Serial.println(MQTTUsername);
+  Serial.print("auth: ");
+  Serial.println(MQTTPassword);
+  #endif //VERBOSE
+  
+  //------------------------------------------
+  //post
+  
+  #ifdef POST
+  //set MQTT server
+  MQTTClient.setServer(MQTTServer, MQTTPort);
+
+  //------------------------------------------
+  //connect to wifi
+  if (WiFi.status() != WL_CONNECTED) {
+    wifiConnect();
+  }
+  
+  //------------------------------------------
+  //post data
+  if (WiFi.status() == WL_CONNECTED) {
+
+    //------------------------------------------
+    //connect to MQTT broker
+    MQTTConnect();
+    if (MQTTClient.connected()) {
+
+      //------------------------------------------
+      //call the loop continuously to establish connection to the server
+      MQTTClient.loop();      
+      
+      //------------------------------------------
+      //publish
+      if (MQTTClient.publish(topic, message)) {
+        #ifdef VERBOSE
+        Serial.println("success");
+        #endif //VERBOSE
+      } else {
+        #ifdef VERBOSE
+        Serial.println("fail");
+        #endif //VERBOSE
+      }
+      Serial.println();
+
+      //------------------------------------------
+      //disconnect
+      MQTTClient.disconnect();
+    }
+  }
+
+  //------------------------------------------
+  #ifndef CAFFEINE
+  //disconnect before leaving
+  WiFi.disconnect();
+  #endif //CAFFEINE
+  
+  #endif //POST
+  return;
+}
+
+//******************************************
 //connect to wifi
-//try connecting for 20 times with 1 s intervals
 #ifdef POST
 void wifiConnect() {
 
@@ -715,7 +778,7 @@ void wifiConnect() {
   Serial.println(ssid);
   #endif //VERBOSE
 
-  //connect
+  //try connecting for 20 times with 1 s intervals
   for (int ii = 0; ii < 20; ii++) {
 
     //status
@@ -780,6 +843,7 @@ void wifiConnect() {
 #endif //POST
 
 //******************************************
+//connect to MQTT broker
 #ifdef POST
 void MQTTConnect() {
 
@@ -793,8 +857,8 @@ void MQTTConnect() {
   //random clientID
   char clientID[10];
 
-  //try connecting for 5 times with 2 s intervals
-  for (int ii = 0; ii < 5; ii++) {
+  //try connecting for 10 times with 1 s intervals
+  for (int ii = 0; ii < 10; ii++) {
 
     //generate random clientID
     for (int i = 0; i < 10; i++) {
@@ -860,100 +924,86 @@ void MQTTConnect() {
     }
 
     //delay between trials
-    delay(2000);//ms
+    delay(1000);//ms
   }//END connecting loop
 }
 #endif //POST
 
 //******************************************
-//string to post with T, RH and dew point
-String getTRHString(float t, float rh) {
-  String data = String("");
+//set JSON document T, RH and dew point
+void setDocTRH(JsonDocument &doc, float t, float rh) {
 
   //temperature
-  if ( ! isnan(t))
-    data += String("\"temp\":" + String(t));
-  else
-    data += String("\"temp\":\"NaN\"");
+  if ( ! isnan(t)) doc["temp"]=t;
+  else doc["temp"]="\"NaN\"";
 
   //relative humidity
-  if ( ! isnan(rh))
-    data += String(",\"rh\":" + String(rh));
-  else
-    data += String(",\"rh\":\"NaN\"");
-
+  if ( ! isnan(rh)) doc["rh"]=rh;
+  else doc["rh"]="\"NaN\"";
+  
   //dew point
   if ( ! isnan(getDewPoint(t, rh))) {
-    data += String(",\"dewpoint\":" + String(getDewPoint(t, rh)));
-    if (t > getDewPoint(t, rh)) data += String(",\"dewpstatus\":1");
-    else data += String(",\"dewpointstatus\":0");
+    doc["dewpoint"]=getDewPoint(t, rh);
+    if (t > getDewPoint(t, rh)) doc["dewpointstatus"]=1;
+    else doc["dewpointstatus"]=0;
   } else {
-    data += String(",\"dewpoint\":\"NaN\"");
-    data += String(",\"dewpointstatus\":\"NaN\"");
+    doc["dewpoint"]="\"NaN\"";
+    doc["dewpointstatus"]="\"NaN\"";
   }
-
-  return data;
+  
 }
 
 //******************************************
-//metadata string with institute, room, location and name
-String getMetadataString() {
-  String data = String("");
+//add metadata to JSON document: institute, room, location and name
+void addMetaData(JsonDocument &doc) {
   #ifdef INSTITUTE
-  data += String(",\"institute\":\"");
-  data += INSTITUTE;
-  data += String("\"");
+  doc["instutute"]=INSTITUTE;
   #endif //INSTITUTE
   #ifdef ROOM
-  data += String(",\"room\":\"");
-  data += ROOM;
-  data += String("\"");
+  doc["room"]=ROOM;
   #endif //ROOM
   #ifdef LOCATION
-  data += String(",\"location\":\"");
-  data += LOCATION;
-  data += String("\"");
+  doc["location"]=LOCATION;
   #endif //LOCATION
   #ifdef NAME
-  data += String(",\"name\":\"");
-  data += NAME;
-  data += String("\"");
+  doc["name"]=NAME;
   #endif //NAME
-  return data;
 }
 
 //******************************************
-#if defined(POST) || defined(QUIET)
-void MQTTPublish() {
+void getMQTTMessage(JsonDocument &doc) {
 
-  //print
-  #if defined(POST) && !defined(QUIET) && defined(VERBOSE)
-  Serial.println("posting data");
-  #endif
-
-  //create data string to send to MQTT broker
-  //NOTE the string is a JSON array
-  String data = String("[");
-
+  //------------------------------------------
   //SHTA
   #ifdef SHTA
-  data += String("{");
-  data += getTRHString(ta, rha);
-  data += String(",\"sensor\":\"SHTA\"");
-  data += getMetadataString();
-  data += String("},");
+  StaticJsonDocument<160> docSHTA;
+  setDocTRH(docSHTA, ta, rha);
+  doc["sensor"]="SHTA";
+  addMetaData(docSHTA);
+  doc.add(docSHTA);
   #endif //SHTA
 
+  //------------------------------------------
   //SHTB
   #ifdef SHTB
-  data += String("{");
-  data += getTRHString(tb, rhb);
-  data += String(",\"sensor\":\"SHTB\"");
-  data += getMetadataString();
-  data += String("},");
+  StaticJsonDocument<160> docSHTB;
+  setDocTRH(docSHTB, tb, rhb);
+  docSHTB["sensor"]="SHTB";
+  addMetaData(docSHTB);
+  doc.add(docSHTB);
   #endif //SHTB
 
-  //SPS30
+  //------------------------------------------
+  //SPS30128
+  #ifdef SPS30
+  StaticJsonDocument<128> docSPS30;
+  if ( ! isnan(dustnc0p5)) docSPS30["dustnc0p5"]=dustnc0p5;
+  else docSPS30["dustnc0p5"]="\"NaN\"";
+  docSPS30["sensor"]="SPS30";
+  addMetaData(docSPS30);
+  doc.add(docSPS30);
+  #endif //SPS30
+  /*
   #ifdef SPS30
   data += String("{");
   if ( ! isnan(dustnc0p5))
@@ -1028,91 +1078,125 @@ void MQTTPublish() {
   data += getMetadataString();
   data += String("},");
   #endif //SPS30
+  */
 
+  //------------------------------------------
   //SDP610
   #ifdef SDP610
-  data += String("{");
-  if ( ! isnan(dp))
-    data += String("\"differentialpressure\":" + String(dp));
-  else
-    data += String("\"differentialpressure\":\"NaN\"");
-  data += String(",\"sensor\":\"SDP610\"");
-  data += getMetadataString();
-  data += String("},");
+  StaticJsonDocument<128> docSDP610;
+  if ( ! isnan(dp)) docSDP610["differentialpressure"]=dp;
+  else docSDP610["differentialpressure"]="\"NaN\"";
+  docSDP610["sensor"]="SDP610";
+  addMetaData(docSDP610);
+  doc.add(docSDP610);
   #endif //SDP610
 
-  //ADC
-  #ifdef ADC
-  data += String("{");
-  if ( ! isnan(adc))
-    data += String("\"adc\":" + String(adc));
-  else
-    data += String("\"adc\":\"NaN\"");
-  data += String(",\"sensor\":\"ADC\"");
-  data += getMetadataString();
-  data += String("},");
-  #endif //ADC
+  //------------------------------------------
+  //ADC0
+  #ifdef ADC0
+  StaticJsonDocument<128> docADC0;
+  if ( ! isnan(adc0)) docADC0["adc"]=adc0;
+  else docADC0["adc"]="\"NaN\"";
+  docADC0["sensor"]="ADC0";
+  addMetaData(docADC0);
+  doc.add(docADC0);
+  #endif //ADC0
+  
+  //NTC0
+  #ifdef NTC0
+  StaticJsonDocument<128> docNTC0;
+  if ( ! isnan(tntc0)) docNTC0["temp"]=tntc0;
+  else docNTC0["temp"]="\"NaN\"";
+  docNTC0["sensor"]="NTC0";
+  addMetaData(docNTC0);
+  doc.add(docNTC0);
+  #endif //NTC0
 
-  //NTC
+  //------------------------------------------
+  //ADC1
+  #ifdef ADC1
+  StaticJsonDocument<128> docADC1;
+  if ( ! isnan(adc1)) docADC1["adc"]=adc1;
+  else docADC1["adc"]="\"NaN\"";
+  docADC1["sensor"]="ADC1";
+  addMetaData(docADC1);
+  doc.add(docADC1);
+  #endif //ADC1
+  
+  //NTC1
+  #ifdef NTC1
+  StaticJsonDocument<128> docNTC1;
+  if ( ! isnan(tntc1)) docNTC1["temp"]=tntc1;
+  else docNTC1["temp"]="\"NaN\"";
+  docNTC1["sensor"]="NTC1";
+  addMetaData(docNTC1);
+  doc.add(docNTC1);
+  #endif //NTC1
+
+  //------------------------------------------
+  //ADC2
+  #ifdef ADC2
+  StaticJsonDocument<128> docADC2;
+  if ( ! isnan(adc2)) docADC2["adc"]=adc2;
+  else docADC2["adc"]="\"NaN\"";
+  docADC2["sensor"]="ADC2";
+  addMetaData(docADC2);
+  doc.add(docADC2);
+  #endif //ADC2
+  
+  //NTC2
+  #ifdef NTC2
+  StaticJsonDocument<128> docNTC2;
+  if ( ! isnan(tntc2)) docNTC2["temp"]=tntc2;
+  else docNTC2["temp"]="\"NaN\"";
+  docNTC2["sensor"]="NTC2";
+  addMetaData(docNTC2);
+  doc.add(docNTC2);
+  #endif //NTC2
+
+  //------------------------------------------
+  //ADC3
+  #ifdef ADC3
+  StaticJsonDocument<128> docADC3;
+  if ( ! isnan(adc3)) docADC3["adc"]=adc3;
+  else docADC3["adc"]="\"NaN\"";
+  docADC3["sensor"]="ADC3";
+  addMetaData(docADC3);
+  doc.add(docADC3);
+  #endif //ADC3
+  
+  //NTC3
+  #ifdef NTC3
+  StaticJsonDocument<128> docNTC3;
+  if ( ! isnan(tntc3)) docNTC3["temp"]=tntc3;
+  else docNTC3["temp"]="\"NaN\"";
+  docNTC3["sensor"]="NTC3";
+  addMetaData(docNTC3);
+  doc.add(docNTC3);
+  #endif //NTC3
+
+  //------------------------------------------
+  //ADC4
+  #ifdef ADC4
+  StaticJsonDocument<128> docADC4;
+  if ( ! isnan(adc4)) docADC4["adc"]=adc4;
+  else docADC4["adc"]="\"NaN\"";
+  docADC4["sensor"]="ADC4";
+  addMetaData(docADC4);
+  doc.add(docADC4);
+  #endif //ADC4
+  
+  //NTC4
   #ifdef NTC
-  data += String("{");
-  data += getTRHString(tntc, std::numeric_limits<double>::quiet_NaN());
-  data += String(",\"sensor\":\"NTC\"");
-  data += getMetadataString();
-  data += String("},");
-  #endif //NTC
+  StaticJsonDocument<128> docNTC4;
+  if ( ! isnan(tntc4)) docNTC4["temp"]=tntc4;
+  else docNTC4["temp"]="\"NaN\"";
+  docNTC4["sensor"]="NTC4";
+  addMetaData(docNTC4);
+  doc.add(docNTC4);
+  #endif //NTC4
 
-  //remove trailing ","
-  if (data.endsWith(",")) {
-    data.remove(data.length() - 1);
-  }
-
-  //end of array
-  data += String("]");
-
-  //convert message string to char array
-  int length = data.length();
-  char msgBuffer[length];
-  data.toCharArray(msgBuffer, length + 1);
-
-  //print message
-  #ifdef VERBOSE
-  Serial.print("message: ");
-  Serial.println(msgBuffer);
-  Serial.print("message length: ");
-  Serial.println(length);
-  #endif
-
-  //create topic string
-  String topicString = MQTTTOPIC;
-
-  //append institute to topic
-  #ifdef INSTITUTE
-  topicString += "/";
-  topicString += INSTITUTE;
-  #endif //INSTITUTE
-
-  length = topicString.length();
-  char topicBuffer[length];
-  topicString.toCharArray(topicBuffer, length + 1);
-  #ifdef VERBOSE
-  Serial.print("topic: ");
-  Serial.println(topicString);
-  #endif
-
-  //publish
-  #ifndef QUIET
-  if (MQTTClient.publish(topicBuffer, msgBuffer)) {
-    #ifdef VERBOSE
-    Serial.println("success");
-    #endif //VERBOSE
-  } else {
-    #ifdef VERBOSE
-    Serial.println("fail");
-    #endif //VERBOSE
-  }
-  Serial.println();
-  #endif //QUIET
+  //------------------------------------------
+  return;
 }
-#endif //POST
 
