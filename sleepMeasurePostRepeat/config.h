@@ -31,6 +31,7 @@
 //******************************************
 //dust particle sensors
 //#define SPS30
+//#define SPS30EXTRA //include extra SPS30 measurements
 
 //******************************************
 //pressure sensors

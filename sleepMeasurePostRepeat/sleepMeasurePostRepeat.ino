@@ -115,6 +115,7 @@ float tntc3 = std::numeric_limits<double>::quiet_NaN();//temperature NTC3 [C]
 float tntc4 = std::numeric_limits<double>::quiet_NaN();//temperature NTC4 [C]
 
 float dustnc0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particles concentration [cm^-3]
+#ifdef SPS30EXTRA
 float dustnc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 um particles concentration [cm^-3]
 float dustnc2p5 = std::numeric_limits<double>::quiet_NaN();//>2.5 um particles concentration [cm^-3]
 float dustnc4p0 = std::numeric_limits<double>::quiet_NaN();//>4.0 um particles concentration [cm^-3]
@@ -131,6 +132,7 @@ float mc2p5 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <2.5 um par
 float mc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <4.0 um particles mass concentration [µg/m^-3]
 float mc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3um< size <10.0 um particles mass concentration [µg/m^-3]
 float dustsize = std::numeric_limits<double>::quiet_NaN();//average dust particle size [µm]
+#endif //SPS30EXTRA
 
 //******************************************
 //setup
@@ -306,6 +308,7 @@ void readValues() {
   tntc4 = std::numeric_limits<double>::quiet_NaN();//temperature NTC4 [C]
   
   dustnc0p5 = std::numeric_limits<double>::quiet_NaN();//>0.5 um particles concentration [cm^-3]
+  #ifdef SPS30EXTRA
   dustnc1p0 = std::numeric_limits<double>::quiet_NaN();//>1.0 um particles concentration [cm^-3]
   dustnc2p5 = std::numeric_limits<double>::quiet_NaN();//>2.5 um particles concentration [cm^-3]
   dustnc4p0 = std::numeric_limits<double>::quiet_NaN();//>4.0 um particles concentration [cm^-3]
@@ -322,7 +325,7 @@ void readValues() {
   mc4p0 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <4.0 µm particles mass concentration [µg/m^-3]
   mc10p0 = std::numeric_limits<double>::quiet_NaN();//0.3µm< size <10.0 µm particles mass concentration [µg/m^-3]
   dustsize = std::numeric_limits<double>::quiet_NaN();//typical dust particle size
-
+  #endif //SPS30EXTRA
   //------------------------------------------
   #ifdef SHTA
   ta = sht31a.readTemperature();
@@ -368,6 +371,7 @@ void readValues() {
       #endif //VERBOSE
     } else {
       dustnc0p5 = (m.nc_10p0 - m.nc_0p5); //particles/cm^3
+      #ifdef SPS30EXTRA
       dustnc1p0 = (m.nc_10p0 - m.nc_1p0); //particles/cm^3
       dustnc2p5 = (m.nc_10p0 - m.nc_2p5); //particles/cm^3
       dustnc4p0 = (m.nc_10p0 - m.nc_4p0); //particles/cm^3
@@ -384,6 +388,7 @@ void readValues() {
       mc4p0 = m.mc_4p0; //µg/m^3
       mc10p0 = m.mc_10p0; //µg/m^3
       dustsize = m.typical_particle_size; //µm
+      #endif //SPS30EXTRA
       
       //Serial.print("particle concentration (>0.5 µm and <10 µm): ");
       //Serial.print(dust0p5);
@@ -514,9 +519,12 @@ void printValues() {
   #endif
 
   #ifdef SPS30
-  Serial.print("dust[cm^-3] NC0.5[cm^-3] NC1.0[cm^-3] NC2.5[cm^-3] NC4.0[cm^-3] NC10.0[cm^-3] ");
+  Serial.print("dust[cm^-3] ");
+  #ifdef SPS30EXTRA
+  Serial.print("NC0.5[cm^-3] NC1.0[cm^-3] NC2.5[cm^-3] NC4.0[cm^-3] NC10.0[cm^-3] ");
   Serial.print("dust[µg/m^-3] MC0.5[µg/m^-3] MC1.0[µg/m^-3] MC2.5[µg/m^-3] MC4.0[µg/m^-3] MC10.0[µg/m^-3] dust size[µm] ");
-  #endif
+  #endif //SPS30EXTRA
+  #endif //SPS30
 
   #ifdef SDP610
   Serial.print("dP[Pa] ");
@@ -578,6 +586,7 @@ void printValues() {
   #ifdef SPS30
   Serial.print(dustnc0p5,3);//particle concentration (>0.5 um)
   Serial.print("       ");
+  #ifdef SPS30EXTRA
   Serial.print(nc0p5,3);//particle concentration (<0.5 um)
   Serial.print("        ");
   Serial.print(nc1p0,3);//particle concentration (<1.0 um)
@@ -600,7 +609,8 @@ void printValues() {
   Serial.print("         ");
   Serial.print(dustsize,3);//typical dust particle size (µm)
   Serial.print("         ");
-  #endif
+  #endif //SPS30EXTRA
+  #endif //SPS30
 
   #ifdef SDP610
   Serial.print(dp);//differential pressure
@@ -994,91 +1004,49 @@ void getMQTTMessage(JsonDocument &doc) {
   #endif //SHTB
 
   //------------------------------------------
-  //SPS30128
+  //SPS30
   #ifdef SPS30
   StaticJsonDocument<128> docSPS30;
   if ( ! isnan(dustnc0p5)) docSPS30["dustnc0p5"]=dustnc0p5;
   else docSPS30["dustnc0p5"]="\"NaN\"";
+  #ifdef SPS30EXTRA
+  if ( ! isnan(dustnc1p0)) docSPS30["dustnc1p0"]=dustnc1p0;
+  else docSPS30["dustnc1p0"]="\"NaN\"";
+  if ( ! isnan(dustnc2p5)) docSPS30["dustnc2p5"]=dustnc2p5;
+  else docSPS30["dustnc2p5"]="\"NaN\"";
+  if ( ! isnan(dustnc4p0)) docSPS30["dustnc4p0"]=dustnc4p0;
+  else docSPS30["dustnc4p0"]="\"NaN\"";
+  if ( ! isnan(nc0p5)) docSPS30["nc0p5"]=nc0p5;
+  else docSPS30["nc0p5"]="\"NaN\"";
+  if ( ! isnan(nc1p0)) docSPS30["nc1p0"]=nc1p0;
+  else docSPS30["nc1p0"]="\"NaN\"";
+  if ( ! isnan(nc2p5)) docSPS30["nc2p5"]=nc2p5;
+  else docSPS30["nc2p5"]="\"NaN\"";
+  if ( ! isnan(nc4p0)) docSPS30["nc4p0"]=nc4p0;
+  else docSPS30["nc4p0"]="\"NaN\"";
+  if ( ! isnan(nc10p0)) docSPS30["nc10p0"]=nc10p0;
+  else docSPS30["nc10p0"]="\"NaN\"";
+  if ( ! isnan(dustmc1p0)) docSPS30["dustmc1p0"]=dustmc1p0;
+  else docSPS30["dustmc1p0"]="\"NaN\"";
+  if ( ! isnan(dustmc2p5)) docSPS30["dustmc2p5"]=dustmc2p5;
+  else docSPS30["dustmc2p5"]="\"NaN\"";
+  if ( ! isnan(dustmc4p0)) docSPS30["dustmc4p0"]=dustmc4p0;
+  else docSPS30["dustmc4p0"]="\"NaN\"";
+  if ( ! isnan(mc1p0)) docSPS30["mc1p0"]=mc1p0;
+  else docSPS30["mc1p0"]="\"NaN\"";
+  if ( ! isnan(mc2p5)) docSPS30["mc2p5"]=mc2p5;
+  else docSPS30["mc2p5"]="\"NaN\"";
+  if ( ! isnan(mc4p0)) docSPS30["mc4p0"]=mc4p0;
+  else docSPS30["mc4p0"]="\"NaN\"";
+  if ( ! isnan(mc10p0)) docSPS30["mc10p0"]=mc10p0;
+  else docSPS30["mc10p0"]="\"NaN\"";
+  if ( ! isnan(dustsize)) docSPS30["dustsize"]=dustsize;
+  else docSPS30["dustsize"]="\"NaN\"";
+  #endif //SPS30EXTRA
   docSPS30["sensor"]="SPS30";
   addMetaData(docSPS30);
   doc.add(docSPS30);
   #endif //SPS30
-  /*
-  #ifdef SPS30
-  data += String("{");
-  if ( ! isnan(dustnc0p5))
-    data += String("\"dustnc0p5\":" + String(dustnc0p5,6));
-  else
-    data += String("\"dustnc0p5\":\"NaN\"");
-  if ( ! isnan(dustnc1p0))
-    data += String(",\"dustnc1p0\":" + String(dustnc1p0,6));
-  else
-    data += String(",\"dustnc1p0\":\"NaN\"");
-  if ( ! isnan(dustnc2p5))
-    data += String(",\"dustnc2p5\":" + String(dustnc2p5,6));
-  else
-    data += String(",\"dustnc2p5\":\"NaN\"");
-  if ( ! isnan(dustnc4p0))
-    data += String(",\"dustnc4p0\":" + String(dustnc4p0,6));
-  else
-    data += String(",\"dustnc4p0\":\"NaN\"");
-  if ( ! isnan(nc0p5))
-    data += String(",\"nc0p5\":" + String(nc0p5,3));
-  else
-    data += String(",\"nc0p5\":\"NaN\"");
-  if ( ! isnan(nc1p0))
-    data += String(",\"nc1p0\":" + String(nc1p0,3));
-  else
-    data += String(",\"nc1p0\":\"NaN\"");
-  if ( ! isnan(nc2p5))
-    data += String(",\"nc2p5\":" + String(nc2p5,3));
-  else
-    data += String(",\"nc2p5\":\"NaN\"");
-  if ( ! isnan(nc4p0))
-    data += String(",\"nc4p0\":" + String(nc4p0,3));
-  else
-    data += String(",\"nc4p0\":\"NaN\"");
-  if ( ! isnan(nc10p0))
-    data += String(",\"nc10p0\":" + String(nc10p0,3));
-  else
-    data += String(",\"nc10p0\":\"NaN\"");
-  if ( ! isnan(dustmc1p0))
-    data += String(",\"dustmc1p0\":" + String(dustmc1p0,6));
-  else
-    data += String(",\"dustmc1p0\":\"NaN\"");
-  if ( ! isnan(dustmc2p5))
-    data += String(",\"dustmc2p5\":" + String(dustmc2p5,6));
-  else
-    data += String(",\"dustmc2p5\":\"NaN\"");
-  if ( ! isnan(dustmc4p0))
-    data += String(",\"dustmc4p0\":" + String(dustmc4p0,6));
-  else
-    data += String(",\"dustmc4p0\":\"NaN\"");
-  if ( ! isnan(mc1p0))
-    data += String(",\"mc1p0\":" + String(mc1p0,3));
-  else
-    data += String(",\"mc1p0\":\"NaN\"");
-  if ( ! isnan(mc2p5))
-    data += String(",\"mc2p5\":" + String(mc2p5,3));
-  else
-    data += String(",\"mc2p5\":\"NaN\"");
-  if ( ! isnan(mc4p0))
-    data += String(",\"mc4p0\":" + String(mc4p0,3));
-  else
-    data += String(",\"mc4p0\":\"NaN\"");
-  if ( ! isnan(mc10p0))
-    data += String(",\"mc10p0\":" + String(mc10p0,3));
-  else
-    data += String(",\"mc10p0\":\"NaN\"");
-  if ( ! isnan(dustsize))
-    data += String(",\"dustsize\":" + String(dustsize,3));
-  else
-    data += String(",\"dustsize\":\"NaN\"");
-  data += String(",\"sensor\":\"SPS30\"");
-  data += getMetadataString();
-  data += String("},");
-  #endif //SPS30
-  */
 
   //------------------------------------------
   //SDP610
