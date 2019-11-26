@@ -11,7 +11,8 @@
 #define DELAY (5000)//ms
 
 //******************************************
-#include <ESP8266WiFi.h>
+//#include <ESP8266WiFi.h> //ESP8266
+#include <WiFi.h> //ESP32
 #include <guescio.h>
 
 //******************************************
