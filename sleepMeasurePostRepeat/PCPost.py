@@ -5,9 +5,9 @@
 #NOTE: this scripts runs once and then terminates.
 #NOTE: SLEEPTIME should be lower than the interval used to read the serial output
 #NOTE: add this script to the PC crontab, for example to run it every 20 seconds:
-#      * * * * * timeout 10 python3 PCPost.py
-#      * * * * * sleep 20; timeout 10 python3 PCPost.py
-#      * * * * * sleep 40; timeout 10 python3 PCPost.py
+#      * * * * * timeout 20 python3 PCPost.py
+#      * * * * * sleep 20; timeout 20 python3 PCPost.py
+#      * * * * * sleep 40; timeout 20 python3 PCPost.py
 
 #******************************************
 #import stuff
