@@ -1,3 +1,3 @@
-# ESP8266 #
+# ESP8266/ESP32 #
 
-A collection of sketches for the ESP8266.
+A collection of sketches for ESP8266 and ESP32.
